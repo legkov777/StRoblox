@@ -1383,91 +1383,102 @@ RunService.Heartbeat:Connect(function()
 end)
 
 ---------------------------------------------------------------- ПРОПЕЛЛЕРЫ (крутим у себя, каждый кадр)
+-- Сервер записал каждой лопасти FCBase (как стоит относительно самолёта), FCHub (втулка) и FCGroup.
 local propCache = {}
-local propSeen = {}
-local function buildProps(pl)
-	local root = pl.PrimaryPart or pl:FindFirstChild("Root")
-	if not root then return nil end
-	local groups, order = {}, {}
+
+local function makeDisc(r)
+	local disc = Instance.new("Part")
+	disc.Name = "PropBlur"
+	disc.Shape = Enum.PartType.Cylinder
+	disc.Size = Vector3.new(0.15, r * 2, r * 2)
+	disc.Anchored = true
+	disc.CanCollide = false
+	disc.CanQuery = false
+	disc.CanTouch = false
+	disc.CastShadow = false
+	disc.Material = Enum.Material.SmoothPlastic
+	disc.Color = Color3.fromRGB(70, 72, 78)
+	disc.Transparency = 1
+	disc.Parent = camera
+	return disc
+end
+
+-- досматриваем модель: детали могут подгружаться постепенно
+local function scanProps(pl, cache)
 	for _, d in ipairs(pl:GetDescendants()) do
-		if d:IsA("BasePart") and d:GetAttribute("FCProp") then
-			local slot = d:GetAttribute("FCEngine")
-			local key = slot and ("s" .. slot) or d
-			if not groups[key] then
-				groups[key] = { parts = {}, angle = math.random() * 6 }
-				table.insert(order, groups[key])
+		if d:IsA("BasePart") and not cache.known[d] then
+			local base = d:GetAttribute("FCBase")
+			local hub = d:GetAttribute("FCHub")
+			local key = d:GetAttribute("FCGroup")
+			if typeof(base) == "CFrame" and typeof(hub) == "Vector3" and key then
+				cache.known[d] = true
+				local g = cache.groups[key]
+				if not g then
+					g = { parts = {}, hub = hub, angle = math.random() * 6, r = 1 }
+					cache.groups[key] = g
+					cache.count += 1
+				end
+				table.insert(g.parts, { p = d, base = base })
+				local off = base.Position - hub
+				local r = Vector3.new(off.X, off.Y, 0).Magnitude + d.Size.Magnitude * 0.5
+				if r > g.r or not g.disc then
+					g.r = math.max(g.r, r)
+					if g.disc then g.disc:Destroy() end
+					g.disc = makeDisc(g.r)
+				end
 			end
-			table.insert(groups[key].parts, { p = d, base = root.CFrame:ToObjectSpace(d.CFrame) })
 		end
 	end
-	for _, g in ipairs(order) do
-		local s = Vector3.zero
-		for _, e in ipairs(g.parts) do s += e.base.Position end
-		g.hub = s / #g.parts
-		local r = 1
-		for _, e in ipairs(g.parts) do
-			local off = e.base.Position - g.hub
-			r = math.max(r, Vector3.new(off.X, off.Y, 0).Magnitude + e.p.Size.Magnitude * 0.5)
-		end
-		-- полупрозрачный диск — «размытие» винта на больших оборотах (видно только тебе)
-		local disc = Instance.new("Part")
-		disc.Name = "PropBlur"
-		disc.Shape = Enum.PartType.Cylinder
-		disc.Size = Vector3.new(0.15, r * 2, r * 2)
-		disc.Anchored = true
-		disc.CanCollide = false
-		disc.CanQuery = false
-		disc.CanTouch = false
-		disc.CastShadow = false
-		disc.Material = Enum.Material.SmoothPlastic
-		disc.Color = Color3.fromRGB(70, 72, 78)
-		disc.Transparency = 1
-		disc.Parent = camera
-		g.disc = disc
-	end
-	return { root = root, groups = order }
 end
 
 RunService.RenderStepped:Connect(function(dt)
 	for pl, cache in pairs(propCache) do
 		if not pl.Parent then
-			for _, g in ipairs(cache.groups) do g.disc:Destroy() end
+			for _, g in pairs(cache.groups) do
+				if g.disc then g.disc:Destroy() end
+			end
 			propCache[pl] = nil
 		end
 	end
+	local now = os.clock()
 	for _, pl in ipairs(flightsFolder:GetChildren()) do
 		local cache = propCache[pl]
-		if cache == nil then
-			-- ждём секунду, пока модель целиком дойдёт до игрока
-			propSeen[pl] = propSeen[pl] or os.clock()
-			if os.clock() - propSeen[pl] > 1 then
-				cache = buildProps(pl) or false
-				propCache[pl] = cache
-				propSeen[pl] = nil
+		if not cache then
+			cache = { groups = {}, known = {}, count = 0, scanT = 0, reported = false }
+			propCache[pl] = cache
+		end
+		if now - cache.scanT > 2 then
+			cache.scanT = now
+			scanProps(pl, cache)
+			if not cache.reported and pl.Name == player.Name then
+				cache.reported = true
+				print(("FlyCrash (клиент): у твоего самолёта найдено винтов: %d"):format(cache.count))
 			end
 		end
-		if cache and cache.root.Parent then
+		local root = pl.PrimaryPart or pl:FindFirstChild("Root")
+		if root and cache.count > 0 then
 			local on = pl:GetAttribute("EngineOn") == true and pl:GetAttribute("State") ~= "КРУШЕНИЕ"
 			local thr = (pl:GetAttribute("Throttle") or 0) / 100
 			local spin = on and (10 + thr * 50) or 0
-			local rcf = cache.root.CFrame
-			for _, g in ipairs(cache.groups) do
+			local rcf = root.CFrame
+			for _, g in pairs(cache.groups) do
 				if not on then
-					-- двигатель выключен или крушение: не трогаем детали (обломки летят сами)
-					g.disc.Transparency = 1
-					continue
-				end
-				local alive = false
-				g.angle = (g.angle + spin * dt) % (math.pi * 2)
-				local turn = CFrame.new(g.hub) * CFrame.Angles(0, 0, g.angle) * CFrame.new(-g.hub)
-				for _, e in ipairs(g.parts) do
-					if e.p:IsDescendantOf(pl) then
-						alive = true
-						e.p.CFrame = rcf * turn * e.base
+					if g.disc then g.disc.Transparency = 1 end
+				else
+					local alive = false
+					g.angle = (g.angle + spin * dt) % (math.pi * 2)
+					local turn = CFrame.new(g.hub) * CFrame.Angles(0, 0, g.angle) * CFrame.new(-g.hub)
+					for _, e in ipairs(g.parts) do
+						if e.p.Parent and e.p:IsDescendantOf(pl) then
+							alive = true
+							e.p.CFrame = rcf * turn * e.base
+						end
+					end
+					if g.disc then
+						g.disc.Transparency = (alive and spin > 25) and 0.72 or 1
+						g.disc.CFrame = rcf * CFrame.new(g.hub) * CFrame.Angles(0, math.rad(90), 0)
 					end
 				end
-				g.disc.Transparency = (alive and spin > 25) and 0.72 or 1
-				g.disc.CFrame = rcf * CFrame.new(g.hub) * CFrame.Angles(0, math.rad(90), 0)
 			end
 		end
 	end

@@ -561,8 +561,9 @@ local function prepPlane(model)
 	model:SetAttribute("FCFirstFlight", attr("FirstFlight", meta and meta.year or "—"))
 	model:SetAttribute("FCPrice", attr("Price", meta and meta.price or d.price))
 	model:SetAttribute("FCCapacity", attr("Capacity", meta and meta.cap or ({ 4, 20, 60 })[class]))
-	print(("FlyCrash: «%s» готов — нос по: %s, длина %d, размах %d, шасси %d"):format(
-		model.Name, how or "?", math.floor(length), math.floor(span), model:GetAttribute("FCGearCount") or 0))
+	print(("FlyCrash: «%s» готов — нос по: %s, длина %d, размах %d, шасси %d, деталей винтов %d"):format(
+		model.Name, how or "?", math.floor(length), math.floor(span),
+		model:GetAttribute("FCGearCount") or 0, model:GetAttribute("FCPropCount") or 0))
 	return true
 end
 
@@ -1343,28 +1344,33 @@ spawnFlight = function(owner, planeName, livery)
 	f.hordeAt = os.clock() + CFG.HORDE_FIRST
 	f.overrunT = 0
 
-	-- пропеллеры: группы по двигателям, крутим вокруг втулки
-	f.props = {}
+	-- пропеллеры: группы по двигателям. Каждой лопасти записываем, как она стоит относительно
+	-- самолёта и где её втулка — клиент по этим данным крутит винты плавно у себя.
 	do
 		local rootCF = plane.PrimaryPart.CFrame
 		local groups, order = {}, {}
 		for _, d in ipairs(plane:GetDescendants()) do
 			if d:IsA("BasePart") and d:GetAttribute("FCProp") then
 				local slot = d:GetAttribute("FCEngine")
-				local key = slot and ("s" .. slot) or d:GetFullName()
+				local key = slot and ("s" .. slot) or ("p" .. #order + 1)
 				if not groups[key] then
-					groups[key] = { slot = slot, parts = {}, angle = math.random() * 6 }
+					groups[key] = { key = key, parts = {} }
 					table.insert(order, groups[key])
 				end
-				table.insert(groups[key].parts, { p = d, base = rootCF:ToObjectSpace(d.CFrame) })
+				table.insert(groups[key].parts, d)
 			end
 		end
 		for _, g in ipairs(order) do
 			local s = Vector3.zero
-			for _, e in ipairs(g.parts) do s += e.base.Position end
-			g.hub = s / #g.parts
-			table.insert(f.props, g)
+			for _, p in ipairs(g.parts) do s += rootCF:PointToObjectSpace(p.Position) end
+			local hub = s / #g.parts
+			for _, p in ipairs(g.parts) do
+				p:SetAttribute("FCBase", rootCF:ToObjectSpace(p.CFrame))
+				p:SetAttribute("FCHub", hub)
+				p:SetAttribute("FCGroup", g.key)
+			end
 		end
+		print(("FlyCrash: «%s» — винтов: %d"):format(planeName, #order))
 	end
 
 	f.engineStarted = false
