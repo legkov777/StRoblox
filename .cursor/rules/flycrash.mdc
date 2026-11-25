@@ -1,0 +1,34 @@
+---
+description: Устройство проекта «Последний рейс: Эвакуация» (Roblox, Luau)
+alwaysApply: true
+---
+
+# Проект
+
+Roblox-игра: игрок выбирает самолёт в ангаре, забирает пассажиров в аэропорту под атакой зомби, везёт их на остров-убежище, получает деньги. План развития — `docs/ROADMAP.md`.
+
+## Файлы
+- `src/server/FlyCrashServer.lua` — полёты, ангар, покупки, награды, сохранения (DataStore `FlyCrash_v1`, ключ `p_<UserId>`), орды. Собирается из частей; правь этот файл напрямую.
+- `src/server/OutbreakServer.lua` — гражданские-пассажиры и зомби.
+- `src/server/WorldBuilder.lua` — ландшафт (поля, горы, море, остров). Строится при старте; в конце срезает траву под плоскими плитами у земли.
+- `src/server/TrafficServer.lua` — машины.
+- `src/client/FlyCrashClient.lua` — весь интерфейс (ангар, HUD, подсказки, камера, винты, ворота глиссады).
+- `src/shared/FlyCrashShared.lua` — ливреи, перевод скорости/высоты.
+- `tools/build_place.py` — генерирует `FlyCrash.rbxlx`: все постройки мира (детали) + вставляет скрипты из `src/`. Хелперы `part()`, `container()`, `script()`.
+- `tools/update_my_place.py` — вставляет свежие скрипты в чужой/личный .rbxlx, не трогая модели.
+
+## Архитектура
+- Самолёты кинематические: заякорены, сервер двигает их `PivotTo` каждый Heartbeat. Физика Roblox для самолётов не используется.
+- Телеметрия — атрибуты модели самолёта в `Workspace/Flights/<имя игрока>`: `Speed`, `Altitude`, `Pitch`, `Throttle`, `State` ("НА ЗЕМЛЕ" / "В ВОЗДУХЕ" / "СВАЛИВАНИЕ" / "КРУШЕНИЕ"), `EngineOn`, `Passengers`, `Capacity`.
+- Сеть: `ReplicatedStorage/FlyCrash` (RemoteEvents `Chaos`, `PilotInput`, `Hangar`). Между серверными скриптами: `ServerStorage/FlyCrashAPI` (BindableFunction), `ServerStorage/FlyCrashHorde` (BindableEvent).
+- Модели самолётов из Toolbox лежат в `Workspace/Hangar`; `prepPlane` удаляет их скрипты, находит нос, кресло, двигатели (`FCEngine`), шасси (`FCGear`), винты (`FCProp`), задаёт паспорт (`FCCapacity`, `Price`, `Category`…).
+- Деньги: `leaderstats.Деньги`, менять только через `addMoney(p, amount, reason)` на сервере. Спасённые: `leaderstats.Спасено`.
+
+## Правила
+- Сервер авторитетен: проверяй деньги/права на сервере, клиенту не доверяй.
+- Luau: `+=` и `continue` можно. Объявляй local-функции до первого использования (или forward-declare).
+- Деталь Part не больше 2048 studs по любой оси. У WedgePart высокая сторона по +Z, у цилиндра ось — X.
+- Плоские плиты у земли (полосы, перроны, основания) WorldBuilder сам опускает в ландшафт — не клади их ниже `y=0`.
+- Тексты для игроков — по-русски, без символов-глифов (✕ ↻ ● ↑↓): в шрифтах Roblox они квадратами.
+- При правке .rbxlx вручную не дублируй `UniqueId` — Studio не откроет файл.
+- После изменений: `python3 tools/build_place.py`, проверка в Studio (Play, окно Output).

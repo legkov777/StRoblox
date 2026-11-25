@@ -59,6 +59,8 @@ tools/fleet.py                  самолёты, собранные из дет
 
 ### Продолжить в Cursor
 
+План развития с готовыми заданиями — в [`docs/ROADMAP.md`](docs/ROADMAP.md). Правила проекта для Cursor лежат в `.cursor/rules/flycrash.mdc`, он подхватит их сам. Пример запроса в Cursor: «Сделай этап 1 из docs/ROADMAP.md».
+
 1. Склонируй репозиторий и открой папку в Cursor.
 2. Правь скрипты в `src/` (язык Luau). Мир и постройки (полосы, остров, здания) задаются в `tools/build_place.py`.
 3. После правок: `python3 tools/build_place.py`, затем, если нужно, `tools/update_my_place.py` для своего места.
