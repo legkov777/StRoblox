@@ -476,6 +476,7 @@ out = ['<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" '
                container("RemoteEvent", "Chaos", []),
                container("RemoteEvent", "PilotInput", []),
                container("RemoteEvent", "Hangar", []),
+               container("StringValue", "TitleImage", [], '<string name="Value"></string>'),
            ]),
            script("ModuleScript", "FlyCrashShared", shared_src),
            container("Folder", "FlyCrashSounds", [

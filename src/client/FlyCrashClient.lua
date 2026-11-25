@@ -1365,6 +1365,70 @@ RunService.Heartbeat:Connect(function()
 	end
 end)
 
--- при входе в игру сразу открываем ангар
-task.wait(1)
+---------------------------------------------------------------- ЗАСТАВКА «ПОСЛЕДНИЙ РЕЙС»
+-- Картинку обложки загрузи в Roblox и впиши её ID в ReplicatedStorage > FlyCrash > TitleImage (Value),
+-- например rbxassetid://1234567890. Пока пусто — показывается текстовая заставка.
+local function showSplash()
+	local splash = make("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.fromRGB(12, 14, 22), ZIndex = 100 }, gui)
+	make("UIGradient", {
+		Color = ColorSequence.new(Color3.fromRGB(25, 30, 45), Color3.fromRGB(140, 60, 25)), Rotation = 90,
+	}, splash)
+	local tv = Net:FindFirstChild("TitleImage")
+	local img = tv and tv:IsA("StringValue") and tv.Value or ""
+	local parts = {}
+	if img ~= "" then
+		local il = make("ImageLabel", {
+			Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Image = img,
+			ScaleType = Enum.ScaleType.Crop, ZIndex = 101,
+		}, splash)
+		table.insert(parts, il)
+	else
+		local t1 = label(splash, {
+			Size = UDim2.new(1, -80, 0, 110), Position = UDim2.new(0, 60, 0.22, 0), Font = Enum.Font.GothamBlack,
+			TextSize = 96, TextScaled = true, TextColor3 = C.white, Text = "ПОСЛЕДНИЙ РЕЙС", ZIndex = 101,
+		})
+		make("UIStroke", { Color = Color3.new(0, 0, 0), Thickness = 4 }, t1)
+		local t2 = label(splash, {
+			Size = UDim2.new(1, -80, 0, 70), Position = UDim2.new(0, 64, 0.22, 112), Font = Enum.Font.GothamBlack,
+			TextSize = 64, TextScaled = true, TextColor3 = Color3.fromRGB(255, 110, 30), Text = "ЭВАКУАЦИЯ", ZIndex = 101,
+		})
+		make("UIStroke", { Color = Color3.new(0, 0, 0), Thickness = 3 }, t2)
+		local t3 = label(splash, {
+			Size = UDim2.new(1, -80, 0, 30), Position = UDim2.new(0, 66, 0.22, 196), Font = Enum.Font.GothamBold,
+			TextSize = 22, TextColor3 = Color3.fromRGB(230, 230, 235), ZIndex = 101,
+			Text = "Город захватили зомби. Забери выживших и увези их на остров.",
+		})
+		parts = { t1, t2, t3 }
+	end
+	local hint = label(splash, {
+		Size = UDim2.new(1, 0, 0, 30), Position = UDim2.new(0, 0, 1, -70), Font = Enum.Font.GothamBold, TextSize = 20,
+		TextColor3 = C.white, TextXAlignment = Enum.TextXAlignment.Center, Text = "Нажми, чтобы начать", ZIndex = 102,
+	})
+	make("UIStroke", { Color = Color3.new(0, 0, 0), Thickness = 2 }, hint)
+	local blink = TweenService:Create(hint, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { TextTransparency = 0.7 })
+	blink:Play()
+
+	local done = false
+	local conn = UserInputService.InputBegan:Connect(function(io)
+		if io.UserInputType == Enum.UserInputType.MouseButton1 or io.UserInputType == Enum.UserInputType.Touch
+			or io.UserInputType == Enum.UserInputType.Keyboard or io.UserInputType == Enum.UserInputType.Gamepad1 then
+			done = true
+		end
+	end)
+	local t0 = os.clock()
+	while not done and os.clock() - t0 < 6 do task.wait(0.05) end
+	conn:Disconnect()
+	blink:Cancel()
+	local info = TweenInfo.new(0.5)
+	TweenService:Create(splash, info, { BackgroundTransparency = 1 }):Play()
+	for _, d in ipairs(splash:GetDescendants()) do
+		if d:IsA("TextLabel") then TweenService:Create(d, info, { TextTransparency = 1 }):Play() end
+		if d:IsA("ImageLabel") then TweenService:Create(d, info, { ImageTransparency = 1 }):Play() end
+		if d:IsA("UIStroke") then TweenService:Create(d, info, { Transparency = 1 }):Play() end
+	end
+	task.delay(0.6, function() splash:Destroy() end)
+end
+
+-- при входе: заставка, затем ангар
+showSplash()
 openHangar()
