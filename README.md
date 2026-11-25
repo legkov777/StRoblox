@@ -57,4 +57,4 @@ tools/fleet.py                  самолёты, собранные из дет
 
 ### Звуки
 
-Загрузи свои звуки через **Asset Manager → Bulk Import** и вставь их ID в `SoundId` объектов в **ReplicatedStorage → FlyCrashSounds**: EngineLoop, EngineStart, Takeoff, Landing, Explosion, Crash, Fire, Alarm, Geese, Pilots, Stewardess.
+Загрузи свои звуки через **Asset Manager → Bulk Import** и вставь их ID в `SoundId` объектов в **ReplicatedStorage → FlyCrashSounds**: EngineLoop, EngineStart, Takeoff, Landing, Explosion, Crash, Fire, Alarm, Geese, Pilots, Stewardess, Coin (звук монеток при награде).

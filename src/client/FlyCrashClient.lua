@@ -3,6 +3,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local ProximityPromptService = game:GetService("ProximityPromptService")
+local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
@@ -151,8 +152,19 @@ task.spawn(function()
 	end)
 end)
 
+-- кошелёк в полёте
+local GOLD = Color3.fromRGB(255, 200, 50)
+local wallet = label(flightUI, {
+	Size = UDim2.new(0, 170, 0, 46), Position = UDim2.new(0, 10, 0, 56), BackgroundTransparency = 0.1,
+	BackgroundColor3 = C.bg, Font = Enum.Font.GothamBlack, TextSize = 26, TextColor3 = GOLD,
+	TextXAlignment = Enum.TextXAlignment.Center, Text = "$0",
+})
+corner(wallet, 8)
+make("UIStroke", { Color = GOLD, Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, wallet)
+local walletScale = make("UIScale", { Scale = 1 }, wallet)
+
 local msgBox = make("Frame", {
-	Size = UDim2.new(0, 360, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, Position = UDim2.new(0, 10, 0, 110),
+	Size = UDim2.new(0, 360, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, Position = UDim2.new(0, 10, 0, 112),
 	BackgroundColor3 = C.bg, BackgroundTransparency = 0.15, BorderSizePixel = 0,
 }, flightUI)
 corner(msgBox)
@@ -657,14 +669,124 @@ task.spawn(function()
 	if m then m.Changed:Connect(function() if hangarOpen then refreshInfo() end end) end
 end)
 
-HangarEvent.OnClientEvent:Connect(function(action, text)
+local rewardPopup -- объявлено ниже (раздел «ДЕНЬГИ: анимация»)
+HangarEvent.OnClientEvent:Connect(function(action, text, extra)
 	if action == "toast" then
 		toast(text)
 	elseif action == "open" then
 		openHangar()
+	elseif action == "reward" then
+		if rewardPopup then rewardPopup(text, extra) end
 	elseif action == "crashed" then
 		toast("КРУШЕНИЕ: " .. tostring(text))
 	end
+end)
+
+---------------------------------------------------------------- ДЕНЬГИ: анимация
+local shownMoney = 0
+local countToken = 0
+local function setMoneyText(v)
+	wallet.Text = "$" .. v
+	moneyBox.Text = "$" .. v
+end
+-- счётчик плавно докручивается до новой суммы
+local function animateMoney(target)
+	countToken += 1
+	local my = countToken
+	local start = shownMoney
+	local t0 = os.clock()
+	local dur = math.clamp(math.abs(target - start) / 200, 0.4, 1.4)
+	task.spawn(function()
+		while my == countToken do
+			local a = math.min(1, (os.clock() - t0) / dur)
+			a = 1 - (1 - a) ^ 3
+			shownMoney = math.floor(start + (target - start) * a + 0.5)
+			setMoneyText(shownMoney)
+			if a >= 1 then break end
+			RunService.RenderStepped:Wait()
+		end
+	end)
+	if target > start then
+		walletScale.Scale = 1.25
+		TweenService:Create(walletScale, TweenInfo.new(0.5, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	end
+end
+
+local function playCoinSound()
+	local lib = ReplicatedStorage:FindFirstChild("FlyCrashSounds")
+	local s = lib and lib:FindFirstChild("Coin")
+	if s and s:IsA("Sound") and s.SoundId ~= "" then
+		local c2 = s:Clone()
+		c2.Parent = gui
+		c2:Play()
+		game:GetService("Debris"):AddItem(c2, 4)
+	end
+end
+
+-- крупное «+$100» с подписью и разлетающимися монетками
+rewardPopup = function(amount, reason)
+	playCoinSound()
+	local holder = make("Frame", {
+		Size = UDim2.new(0, 560, 0, 150), Position = UDim2.new(0.5, -280, 0.36, -75),
+		BackgroundTransparency = 1, ZIndex = 60,
+	}, gui)
+	local scale = make("UIScale", { Scale = 0.2 }, holder)
+	local big = label(holder, {
+		Size = UDim2.new(1, 0, 0, 96), Font = Enum.Font.GothamBlack, TextSize = 92, TextColor3 = C.white,
+		TextXAlignment = Enum.TextXAlignment.Center, Text = "+$" .. amount, ZIndex = 61,
+	})
+	make("UIGradient", {
+		Color = ColorSequence.new(Color3.fromRGB(255, 245, 160), Color3.fromRGB(255, 165, 20)), Rotation = 90,
+	}, big)
+	local bigStroke = make("UIStroke", { Color = Color3.fromRGB(110, 60, 0), Thickness = 5 }, big)
+	local sub = label(holder, {
+		Position = UDim2.new(0, 0, 0, 98), Size = UDim2.new(1, 0, 0, 32), Font = Enum.Font.GothamBold, TextSize = 26,
+		TextColor3 = C.white, TextXAlignment = Enum.TextXAlignment.Center, Text = reason or "", ZIndex = 61,
+	})
+	local subStroke = make("UIStroke", { Color = Color3.new(0, 0, 0), Thickness = 2 }, sub)
+	TweenService:Create(scale, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	-- лёгкое покачивание
+	local rot = TweenService:Create(holder, TweenInfo.new(0.12, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 4, true), { Rotation = 4 })
+	task.delay(0.35, function() rot:Play() end)
+
+	-- монетки летят в кошелёк
+	local target = hangarUI.Visible and moneyBox or wallet
+	local n = math.clamp(math.floor(amount / 10), 5, 16)
+	for i = 1, n do
+		local coin = make("Frame", {
+			Size = UDim2.fromOffset(26, 26), AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0.5, math.random(-150, 150), 0.36, math.random(-50, 50)),
+			BackgroundColor3 = GOLD, ZIndex = 59,
+		}, gui)
+		corner(coin, 13)
+		make("UIStroke", { Color = Color3.fromRGB(150, 95, 0), Thickness = 3, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, coin)
+		label(coin, { Size = UDim2.new(1, 0, 1, 0), Font = Enum.Font.GothamBlack, TextSize = 15, TextColor3 = Color3.fromRGB(150, 95, 0), TextXAlignment = Enum.TextXAlignment.Center, Text = "$", ZIndex = 60 })
+		task.delay(0.3 + i * 0.06, function()
+			local tp = target.AbsolutePosition + target.AbsoluteSize / 2
+			local tw = TweenService:Create(coin, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+				Position = UDim2.fromOffset(tp.X, tp.Y), Size = UDim2.fromOffset(12, 12),
+			})
+			tw:Play()
+			tw.Completed:Connect(function() coin:Destroy() end)
+		end)
+	end
+
+	task.delay(1.9, function()
+		local info = TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		TweenService:Create(holder, info, { Position = holder.Position - UDim2.fromOffset(0, 70) }):Play()
+		for _, o in ipairs({ big, sub }) do TweenService:Create(o, info, { TextTransparency = 1 }):Play() end
+		for _, o in ipairs({ bigStroke, subStroke }) do TweenService:Create(o, info, { Transparency = 1 }):Play() end
+		task.delay(0.7, function() holder:Destroy() end)
+	end)
+end
+
+task.spawn(function()
+	local ls = player:WaitForChild("leaderstats", 30)
+	local m = ls and ls:WaitForChild("Деньги", 10)
+	if not m then return end
+	shownMoney = m.Value
+	setMoneyText(m.Value)
+	m.Changed:Connect(function(v) animateMoney(v) end)
 end)
 
 ---------------------------------------------------------------- КЛАВИШИ

@@ -488,9 +488,14 @@ local function moneyValue(p)
 	return ls and ls:FindFirstChild("Деньги")
 end
 
-local function addMoney(p, amount)
+local function addMoney(p, amount, reason)
 	local m = p and moneyValue(p)
-	if m then m.Value += amount end
+	if not m then return end
+	m.Value += amount
+	-- клиент покажет крупное «+$» с монетками
+	if amount > 0 and reason and p.Parent then
+		HangarEvent:FireClient(p, "reward", amount, reason)
+	end
 end
 
 local function publishOwned(p)
@@ -1182,7 +1187,7 @@ HangarEvent.OnServerEvent:Connect(function(p, action, name, livery)
 			return
 		end
 		d.used[code] = true
-		addMoney(p, amount)
+		addMoney(p, amount, "Промокод " .. code)
 		HangarEvent:FireClient(p, "toast", ("Код активирован: +$%d"):format(amount))
 		task.spawn(savePlayer, p)
 	elseif action == "respawn" then
@@ -1295,7 +1300,7 @@ local function hitWalkers(f)
 		if h and root and h.Health > 0 and (root.Position - center).Magnitude < r then
 			h.Health = 0
 			root.AssemblyLinearVelocity = f.state.vel * 0.8 + Vector3.new(0, 60, 0)
-			addMoney(getPilot(f), CFG.ZOMBIE_REWARD)
+			addMoney(getPilot(f), CFG.ZOMBIE_REWARD, "Сбит зомби")
 			msg(f, "Сбит зомби! +$" .. CFG.ZOMBIE_REWARD)
 		end
 	end
@@ -1467,10 +1472,10 @@ local function stepFlight(f, dt, now)
 		else
 			bonus = CFG.LANDING_REWARD + st.chaosCount * CFG.CHAOS_BONUS
 		end
-		addMoney(pilot, bonus)
+		addMoney(pilot, bonus, delivered > 0 and ("Спасено пассажиров: " .. delivered) or "Мягкая посадка")
 		for _, s in ipairs(f.seats) do
 			if s ~= f.pilotSeat and s.Occupant then
-				addMoney(Players:GetPlayerFromCharacter(s.Occupant.Parent), CFG.PASSENGER_REWARD)
+				addMoney(Players:GetPlayerFromCharacter(s.Occupant.Parent), CFG.PASSENGER_REWARD, "Долетел пассажиром")
 			end
 		end
 		if st.fireStart then
