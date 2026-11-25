@@ -19,7 +19,7 @@ local CFG = {
 	CIV_RESPAWN = 5,
 	BOARD_SEARCH = 700,        -- с какого расстояния пассажир видит самолёт
 	ZOMBIE_AREA = { x = { 450, 1100 }, z = { -900, 900 } },   -- поля к востоку от аэропорта
-	CIV_AREA = { x = { 90, 170 }, z = { -230, 110 } },        -- перрон перед терминалом
+	CIV_AREA = { x = { -250, -216 }, z = { -120, 960 } },     -- посадочный перрон у рулёжки (где стоят самолёты)
 }
 
 local ANIM = {
@@ -297,10 +297,11 @@ local function civBrain(m, hum, root)
 		elseif now > nextWander then
 			nextWander = now + math.random(3, 7)
 			hum.WalkSpeed = 8
-			local home = Vector3.new((CFG.CIV_AREA.x[1] + CFG.CIV_AREA.x[2]) / 2, pos.Y, (CFG.CIV_AREA.z[1] + CFG.CIV_AREA.z[2]) / 2)
-			local target = pos + Vector3.new(math.random(-25, 25), 0, math.random(-25, 25))
-			if (target - home).Magnitude > 160 then target = home end
-			hum:MoveTo(target)
+			-- гуляем только в пределах посадочного перрона
+			local a = CFG.CIV_AREA
+			local tx = math.clamp(pos.X + math.random(-20, 20), a.x[1], a.x[2])
+			local tz = math.clamp(pos.Z + math.random(-30, 30), a.z[1], a.z[2])
+			hum:MoveTo(Vector3.new(tx, pos.Y, tz))
 		end
 		task.wait(0.4)
 	end

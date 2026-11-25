@@ -170,8 +170,24 @@ for k in range(14):
     ap.append(part("ParkedCar", (5, 3, 9), (290 + (k % 7) * 9, 1.5, -150 + (k // 7) * 16),
                    random.choice([(200, 40, 40), (240, 240, 240), (30, 30, 35), (40, 90, 180), (230, 190, 40)])))
 ap.append(part("Parking", (80, 0.3, 50), (318, 0.15, -142), ASPH2))
-ap.append(part("PassengerZone", (2, 2, 2), (130, 2, -60), (255, 150, 50), transp=1, collide=False))
+ap.append(part("PassengerZone", (2, 2, 2), (-232, 2, 420), (255, 150, 50), transp=1, collide=False))
 world.append(container("Model", "Airport", ap))
+
+# ================= ПОСАДОЧНЫЙ ПЕРРОН: здесь ждут пассажиры (рядом со стоянками на рулёжке)
+gate = []
+GX = -232
+gate.append(part("GateApron", (40, 0.3, 1100), (GX, 0.15, 420), ASPH2))
+gate.append(part("GateLine", (0.8, 0.05, 1100), (GX + 19, 0.32, 420), YEL, collide=False))
+for k in range(6):
+    gz = -60 + k * 200
+    gate.append(part("ShelterRoof", (22, 1, 30), (GX - 6, 9, gz), (240, 120, 50)))
+    for sx in (-1, 1):
+        for sz in (-1, 1):
+            gate.append(part("ShelterPost", (0.8, 8.5, 0.8), (GX - 6 + sx * 10, 4.4, gz + sz * 13), (200, 200, 205), mat="metal"))
+    gate.append(part("Bench", (3, 1.4, 16), (GX - 12, 0.9, gz), (120, 85, 55), mat="wood"))
+    gate.append(part("GateSign", (0.6, 6, 10), (GX + 12, 6, gz + 18), (40, 160, 90), mat="neon"))
+world.append(container("Model", "PassengerGate", gate))
+
 # ---------------- здание ангара-витрины (x=-420, z=300), ворота смотрят на полосу (+X)
 HX, HZ = -420, 300
 W, D, H = 300, 260, 70

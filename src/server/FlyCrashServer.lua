@@ -167,6 +167,7 @@ local function prepPlane(model)
 		end
 	end
 	local nose = Vector3.new(0, 0, -1)
+	local tailFound = false
 	if wsum > 0 then
 		local off = sum / wsum - Vector3.new(center.X, 0, center.Z)
 		if off.Magnitude > math.max(size.X, size.Z) * 0.04 then
@@ -175,8 +176,49 @@ local function prepPlane(model)
 			else
 				nose = Vector3.new(0, 0, -math.sign(off.Z))
 			end
+			tailFound = true
 		end
 	end
+	-- (а) кресла почти всегда смотрят вперёд — берём их средний взгляд
+	local function snapAxis(v)
+		if math.abs(v.X) > math.abs(v.Z) then return Vector3.new(math.sign(v.X), 0, 0) end
+		return Vector3.new(0, 0, math.sign(v.Z))
+	end
+	local seatSum, seatN = Vector3.zero, 0
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("Seat") or d:IsA("VehicleSeat") then
+			local lv = d.CFrame.LookVector
+			seatSum += Vector3.new(lv.X, 0, lv.Z)
+			seatN += 1
+		end
+	end
+	if seatN > 0 and seatSum.Magnitude > seatN * 0.5 then
+		nose = snapAxis(seatSum)
+	elseif not tailFound then
+		-- (б) кресел нет: фюзеляж заметно длиннее размаха (истребители, цельные модели)
+		local ax = nil
+		if size.X > size.Z * 1.2 then
+			ax = Vector3.new(1, 0, 0)
+		elseif size.Z > size.X * 1.2 then
+			ax = Vector3.new(0, 0, 1)
+		end
+		if ax then
+			-- знак: фонарь кабины ближе к носу; иначе — хвост (самые высокие детали) сзади
+			local s = 0
+			for _, p in ipairs(visible) do
+				local n = string.lower(p.Name)
+				if string.find(n, "glass", 1, true) or string.find(n, "canopy", 1, true)
+					or string.find(n, "cockpit", 1, true) or string.find(n, "windshield", 1, true) then
+					s += (p.Position - center):Dot(ax)
+				end
+			end
+			if s == 0 and wsum > 0 then
+				s = -((sum / wsum) - Vector3.new(center.X, 0, center.Z)):Dot(ax)
+			end
+			nose = ax * ((s >= 0) and 1 or -1)
+		end
+	end
+
 	-- точный нос по маркеру (у встроенных самолётов он есть)
 	local marker = model:FindFirstChild("NoseMarker", true)
 	if marker and marker:IsA("BasePart") then
@@ -425,7 +467,7 @@ local SKIP = {
 	Villages = true, Roads = true, City = true, Ground = true, RunwayMarkings = true, Runway = true,
 	RunwayLights = true, Taxiways = true, Vegetation = true, Traffic = true,
 	Zombies = true, Birds = true, Drones = true, Flights = true, FlyCrashDebris = true, ZombiesLive = true,
-	Civilians = true, SafeAirport = true,
+	Civilians = true, SafeAirport = true, PassengerGate = true,
 }
 local PLANE_WORDS = { "plane", "cessna", "boeing", "airbus", "atr", "jet", "aircraft", "fly", "самол", "707", "737", "747" }
 for _, m in ipairs(workspace:GetChildren()) do
