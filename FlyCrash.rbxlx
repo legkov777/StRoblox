@@ -211,7 +211,12 @@ local function prepPlane(model)
 	local size = maxV - minV
 	local center = (minV + maxV) / 2
 
-	-- 3. Где нос: хвостовое оперение обычно самое высокое
+	-- 3. Где нос. Модель может стоять под любым углом — направление НЕ округляем.
+	local function flat(v)
+		local f = Vector3.new(v.X, 0, v.Z)
+		return f.Magnitude > 1e-4 and f.Unit or nil
+	end
+	-- хвост: самые высокие детали (киль) — их смещение от центра
 	local topY = minV.Y + size.Y * 0.75
 	local sum, wsum = Vector3.zero, 0
 	for _, p in ipairs(visible) do
@@ -221,24 +226,9 @@ local function prepPlane(model)
 			wsum += w
 		end
 	end
-	local nose = Vector3.new(0, 0, -1)
-	local tailFound = false
-	if wsum > 0 then
-		local off = sum / wsum - Vector3.new(center.X, 0, center.Z)
-		if off.Magnitude > math.max(size.X, size.Z) * 0.04 then
-			if math.abs(off.X) > math.abs(off.Z) then
-				nose = Vector3.new(-math.sign(off.X), 0, 0)
-			else
-				nose = Vector3.new(0, 0, -math.sign(off.Z))
-			end
-			tailFound = true
-		end
-	end
-	-- (а) кресла почти всегда смотрят вперёд — берём их средний взгляд
-	local function snapAxis(v)
-		if math.abs(v.X) > math.abs(v.Z) then return Vector3.new(math.sign(v.X), 0, 0) end
-		return Vector3.new(0, 0, math.sign(v.Z))
-	end
+	local tailOff = wsum > 0 and (sum / wsum - Vector3.new(center.X, 0, center.Z)) or Vector3.zero
+	local tailOk = tailOff.Magnitude > math.max(size.X, size.Z) * 0.04
+	-- кресла почти всегда смотрят вперёд
 	local seatSum, seatN = Vector3.zero, 0
 	for _, d in ipairs(model:GetDescendants()) do
 		if d:IsA("Seat") or d:IsA("VehicleSeat") then
@@ -247,38 +237,83 @@ local function prepPlane(model)
 			seatN += 1
 		end
 	end
-	if seatN > 0 and seatSum.Magnitude > seatN * 0.5 then
-		nose = snapAxis(seatSum)
-	elseif not tailFound then
-		-- (б) кресел нет: фюзеляж заметно длиннее размаха (истребители, цельные модели)
-		local ax = nil
-		if size.X > size.Z * 1.2 then
-			ax = Vector3.new(1, 0, 0)
-		elseif size.Z > size.X * 1.2 then
-			ax = Vector3.new(0, 0, 1)
-		end
-		if ax then
-			-- знак: фонарь кабины ближе к носу; иначе — хвост (самые высокие детали) сзади
-			local s = 0
-			for _, p in ipairs(visible) do
-				local n = string.lower(p.Name)
-				if string.find(n, "glass", 1, true) or string.find(n, "canopy", 1, true)
-					or string.find(n, "cockpit", 1, true) or string.find(n, "windshield", 1, true) then
-					s += (p.Position - center):Dot(ax)
+	local seatsOk = seatN > 0 and seatSum.Magnitude > seatN * 0.5
+	-- ось фюзеляжа по «массе»: фюзеляж толстый, крылья тонкие
+	local mx, mz, W = 0, 0, 0
+	local samples = {}
+	for _, p in ipairs(visible) do
+		local s = p.Size
+		local w = math.max(s.X * s.Y * s.Z, 0.01) / 8
+		local h = s / 2
+		for sx = -1, 1, 2 do
+			for sz = -1, 1, 2 do
+				for sy = -1, 1, 2 do
+					local q = p.CFrame:PointToWorldSpace(Vector3.new(h.X * sx, h.Y * sy, h.Z * sz))
+					table.insert(samples, { q.X, q.Z, w })
+					mx += q.X * w
+					mz += q.Z * w
+					W += w
 				end
 			end
-			if s == 0 and wsum > 0 then
-				s = -((sum / wsum) - Vector3.new(center.X, 0, center.Z)):Dot(ax)
-			end
-			nose = ax * ((s >= 0) and 1 or -1)
 		end
+	end
+	mx /= W
+	mz /= W
+	local cxx, czz, cxz = 0, 0, 0
+	for _, q in ipairs(samples) do
+		local dx, dz = q[1] - mx, q[2] - mz
+		cxx += q[3] * dx * dx
+		czz += q[3] * dz * dz
+		cxz += q[3] * dx * dz
+	end
+	local th = 0.5 * math.atan2(2 * cxz, cxx - czz)
+	local pcaAxis = Vector3.new(math.cos(th), 0, math.sin(th))
+	local disc = math.sqrt((cxx - czz) ^ 2 + 4 * cxz * cxz)
+	local elong = (cxx + czz + disc) / math.max(1e-6, cxx + czz - disc)
+
+	local nose = Vector3.new(0, 0, -1)
+	local function signAlong(ax)
+		-- нос — в сторону, противоположную хвосту; иначе — куда смотрят кресла; иначе — где фонарь кабины
+		if tailOk and math.abs(tailOff.Unit:Dot(ax)) > 0.3 then
+			return tailOff:Dot(ax) > 0 and -1 or 1
+		end
+		if seatsOk then
+			return seatSum:Dot(ax) >= 0 and 1 or -1
+		end
+		local s = 0
+		for _, p in ipairs(visible) do
+			local n = string.lower(p.Name)
+			if string.find(n, "glass", 1, true) or string.find(n, "canopy", 1, true)
+				or string.find(n, "cockpit", 1, true) or string.find(n, "windshield", 1, true) then
+				s += (p.Position - center):Dot(ax)
+			end
+		end
+		return s >= 0 and 1 or -1
+	end
+	local how
+	if seatsOk then
+		nose = flat(seatSum) or nose
+		how = "кресла"
+	elseif elong >= 1.6 then
+		nose = pcaAxis * signAlong(pcaAxis)
+		how = "ось фюзеляжа"
+	elseif tailOk then
+		nose = -(flat(tailOff) or Vector3.new(0, 0, 1))
+		how = "хвост"
+	else
+		local ax = size.X > size.Z and Vector3.new(1, 0, 0) or Vector3.new(0, 0, 1)
+		nose = ax * signAlong(ax)
+		how = "габариты"
 	end
 
 	-- точный нос по маркеру (у встроенных самолётов он есть)
 	local marker = model:FindFirstChild("NoseMarker", true)
 	if marker and marker:IsA("BasePart") then
 		local dir = Vector3.new(marker.Position.X - center.X, 0, marker.Position.Z - center.Z)
-		if dir.Magnitude > 0.1 then nose = dir.Unit end
+		if dir.Magnitude > 0.1 then
+			nose = dir.Unit
+			how = "маркер"
+		end
 	end
 	local yawAdj = model:GetAttribute("NoseYaw")
 	if typeof(yawAdj) == "number" and yawAdj ~= 0 then
@@ -287,8 +322,17 @@ local function prepPlane(model)
 
 	local bottom = Vector3.new(center.X, minV.Y, center.Z)
 	local rootCF = CFrame.lookAt(bottom, bottom + nose)
-	local length = math.abs(nose.Z) * size.Z + math.abs(nose.X) * size.X
-	local span = math.abs(nose.Z) * size.X + math.abs(nose.X) * size.Z
+	-- длина и размах — по проекциям на нос и на поперечную ось (модель может стоять под углом)
+	local rightAx = Vector3.new(-nose.Z, 0, nose.X)
+	local lmin, lmax, smin, smax = math.huge, -math.huge, math.huge, -math.huge
+	for _, q in ipairs(samples) do
+		local v = Vector3.new(q[1], 0, q[2])
+		local a, b = v:Dot(nose), v:Dot(rightAx)
+		lmin, lmax = math.min(lmin, a), math.max(lmax, a)
+		smin, smax = math.min(smin, b), math.max(smax, b)
+	end
+	local length = lmax - lmin
+	local span = smax - smin
 
 	local root = Instance.new("Part")
 	root.Name = "Root"
@@ -375,6 +419,7 @@ local function prepPlane(model)
 	pilot:SetAttribute("FCPilot", true)
 	pilot:SetAttribute("FCCam", math.clamp(length * 0.9, 20, 120))
 
+	local okEng, errEng = pcall(function()
 	-- 5. Четыре «слота» двигателей на крыльях; помечаем детали, которые оторвутся
 	local slotX = { -0.33, -0.18, 0.18, 0.33 }
 	local centerLocal = rootCF:PointToObjectSpace(center)
@@ -422,6 +467,10 @@ local function prepPlane(model)
 		model:SetAttribute("FCSlot" .. i, slots[i])
 	end
 
+	end)
+	if not okEng then warn("FlyCrash: " .. model.Name .. " — двигатели не распознаны: " .. tostring(errEng)) end
+
+	local okGear, errGear = pcall(function()
 	-- 6а. Шасси: детали (или их родительские модели) с «колёсными» именами
 	local function gearName(n)
 		n = string.lower(n)
@@ -478,6 +527,10 @@ local function prepPlane(model)
 		end
 	end
 
+	end)
+	if not okGear then warn("FlyCrash: " .. model.Name .. " — шасси не распознаны: " .. tostring(errGear)) end
+
+	local okCol, errCol = pcall(function()
 	-- 6. Основные цвета (для ливрей): два цвета с наибольшей площадью, не тёмные и не стекло
 	local areas = {}
 	for _, p in ipairs(visible) do
@@ -495,6 +548,9 @@ local function prepPlane(model)
 	table.sort(ranked, function(x, y) return x.a > y.a end)
 	if ranked[1] then model:SetAttribute("FCPrimary", Color3.fromHex(ranked[1].k)) end
 	if ranked[2] then model:SetAttribute("FCSecondary", Color3.fromHex(ranked[2].k)) end
+
+	end)
+	if not okCol then warn("FlyCrash: " .. model.Name .. " — цвета для ливрей не найдены: " .. tostring(errCol)) end
 
 	-- 7. Паспорт самолёта: атрибуты модели (можно задать вручную) или справочник
 	local meta = nil
@@ -522,6 +578,8 @@ local function prepPlane(model)
 	model:SetAttribute("FCFirstFlight", attr("FirstFlight", meta and meta.year or "—"))
 	model:SetAttribute("FCPrice", attr("Price", meta and meta.price or d.price))
 	model:SetAttribute("FCCapacity", attr("Capacity", meta and meta.cap or ({ 4, 20, 60 })[class]))
+	print(("FlyCrash: «%s» готов — нос по: %s, длина %d, размах %d, шасси %d"):format(
+		model.Name, how or "?", math.floor(length), math.floor(span), model:GetAttribute("FCGearCount") or 0))
 	return true
 end
 
