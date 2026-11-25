@@ -409,6 +409,51 @@ local flyBtn = make("TextButton", {
 corner(flyBtn, 8)
 local flyHint = label(flyBtn, { Position = UDim2.new(0, 0, 1, -30), Size = UDim2.new(1, 0, 0, 20), TextSize = 12, Font = Enum.Font.GothamBold, TextColor3 = C.dim, TextXAlignment = Enum.TextXAlignment.Center, Text = "Enter" })
 
+-- промокоды
+local codesBtn = make("TextButton", {
+	Text = "КОДЫ", Size = UDim2.new(0, 200, 0, 40), Position = UDim2.new(1, -224, 1, -258),
+	BackgroundColor3 = C.panel, TextColor3 = C.yellow, Font = Enum.Font.GothamBold, TextSize = 16,
+}, hangarUI)
+corner(codesBtn, 8)
+stroke(codesBtn, C.yellow, 1)
+local codesPanel = make("Frame", {
+	Visible = false, Size = UDim2.new(0, 380, 0, 170), Position = UDim2.new(0.5, -190, 0.5, -85),
+	BackgroundColor3 = C.bg, BorderSizePixel = 0, ZIndex = 30,
+}, hangarUI)
+corner(codesPanel, 10)
+stroke(codesPanel, C.yellow, 2)
+label(codesPanel, { Position = UDim2.new(0, 16, 0, 12), Size = UDim2.new(1, -32, 0, 24), Font = Enum.Font.GothamBlack, TextSize = 20, Text = "ПРОМОКОД", ZIndex = 31 })
+local codeBox = make("TextBox", {
+	Position = UDim2.new(0, 16, 0, 48), Size = UDim2.new(1, -32, 0, 44), BackgroundColor3 = C.panel,
+	TextColor3 = C.text, PlaceholderText = "Введи код, например 666", PlaceholderColor3 = C.dim,
+	Font = Enum.Font.GothamBold, TextSize = 20, Text = "", ClearTextOnFocus = false, ZIndex = 31,
+}, codesPanel)
+corner(codeBox, 6)
+local redeemBtn = make("TextButton", {
+	Position = UDim2.new(0, 16, 1, -60), Size = UDim2.new(0.6, -20, 0, 44), BackgroundColor3 = C.yellow,
+	TextColor3 = C.bg, Font = Enum.Font.GothamBlack, TextSize = 16, Text = "АКТИВИРОВАТЬ", ZIndex = 31,
+}, codesPanel)
+corner(redeemBtn, 6)
+local codesClose = make("TextButton", {
+	Position = UDim2.new(0.6, 4, 1, -60), Size = UDim2.new(0.4, -20, 0, 44), BackgroundColor3 = C.panel,
+	TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 15, Text = "ЗАКРЫТЬ", ZIndex = 31,
+}, codesPanel)
+corner(codesClose, 6)
+local function redeem()
+	if codeBox.Text ~= "" then
+		HangarEvent:FireServer("code", codeBox.Text)
+		codeBox.Text = ""
+		codesPanel.Visible = false
+	end
+end
+codesBtn.MouseButton1Click:Connect(function()
+	codesPanel.Visible = not codesPanel.Visible
+	if codesPanel.Visible then codeBox:CaptureFocus() end
+end)
+redeemBtn.MouseButton1Click:Connect(redeem)
+codesClose.MouseButton1Click:Connect(function() codesPanel.Visible = false end)
+codeBox.FocusLost:Connect(function(enter) if enter then redeem() end end)
+
 local closeBtn = make("TextButton", {
 	Text = "НАЗАД", Size = UDim2.new(0, 110, 0, 36), Position = UDim2.new(1, -134, 0, 50),
 	BackgroundColor3 = C.panel, TextColor3 = C.text, Font = Enum.Font.GothamBold, TextSize = 14,

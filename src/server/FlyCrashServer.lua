@@ -35,6 +35,15 @@ local CFG = {
 	RESPAWN_AFTER_CRASH = 6,
 }
 
+-- ПРОМОКОДЫ: код = сколько денег даёт. Каждый игрок может активировать код один раз.
+-- Добавляй свои строки: ["МОЙКОД"] = 1000,
+local CODES = {
+	["666"] = 666,
+	["FLYCRASH"] = 1000,
+	["ZOMBIE"] = 500,
+	["GLEBOVIC"] = 2026,
+}
+
 -- характеристики по классу: 1 лёгкий, 2 средний, 3 тяжёлый
 local PERF = {
 	{ accel = 0.20, turn = 0.9, pitch = 0.9 },
@@ -516,7 +525,11 @@ local function loadPlayer(p)
 	for _, n in ipairs(planeNames) do
 		if priceOf(n) <= 0 then owned[n] = true end
 	end
-	pdata[p] = { owned = owned }
+	local used = {}
+	if saved and saved.codes then
+		for _, c in ipairs(saved.codes) do used[c] = true end
+	end
+	pdata[p] = { owned = owned, used = used }
 	publishOwned(p)
 end
 
@@ -528,7 +541,9 @@ local function savePlayer(p)
 	for n in pairs(d.owned) do table.insert(list, n) end
 	pcall(function()
 		local r = p.leaderstats:FindFirstChild("Спасено")
-		store:SetAsync("p_" .. p.UserId, { money = m.Value, owned = list, rescued = r and r.Value or 0 })
+		local codes = {}
+		for c in pairs(d.used or {}) do table.insert(codes, c) end
+		store:SetAsync("p_" .. p.UserId, { money = m.Value, owned = list, rescued = r and r.Value or 0, codes = codes })
 	end)
 end
 
@@ -1151,6 +1166,23 @@ HangarEvent.OnServerEvent:Connect(function(p, action, name, livery)
 		local idx = tonumber(livery) or 1
 		if not Shared.LIVERIES[idx] then idx = 1 end
 		spawnFlight(p, name, idx)
+	elseif action == "code" then
+		if typeof(name) ~= "string" then return end
+		local code = string.upper((string.gsub(name, "%s", "")))
+		local d = pdata[p]
+		local amount = CODES[code]
+		if not d or not amount then
+			HangarEvent:FireClient(p, "toast", "Такого кода нет")
+			return
+		end
+		if d.used[code] then
+			HangarEvent:FireClient(p, "toast", "Этот код ты уже активировал")
+			return
+		end
+		d.used[code] = true
+		addMoney(p, amount)
+		HangarEvent:FireClient(p, "toast", ("Код активирован: +$%d"):format(amount))
+		task.spawn(savePlayer, p)
 	elseif action == "respawn" then
 		local f = flights[p]
 		if f then spawnFlight(p, f.name, f.livery) end
