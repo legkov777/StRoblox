@@ -197,7 +197,7 @@ make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.Layo
 label(controls, { Size = UDim2.new(1, 0, 0, 16), TextSize = 11, TextColor3 = C.dim, Font = Enum.Font.GothamBold, Text = "УПРАВЛЕНИЕ", LayoutOrder = 0 })
 for i, row in ipairs({
 	{ "W", "Газ больше" }, { "S", "Газ меньше" }, { "A D", "Поворот" },
-	{ "↑ ↓", "Нос вверх / вниз" }, { "R", "Заново" }, { "F", "Выйти" }, { "H", "Ангар" },
+	{ "↑ ↓", "Нос вверх / вниз" }, { "V", "Камера" }, { "ПКМ", "Осмотреться" }, { "R", "Заново" }, { "F", "Выйти" }, { "H", "Ангар" },
 }) do
 	local r = make("Frame", { Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, LayoutOrder = i }, controls)
 	local k = label(r, {
@@ -282,6 +282,13 @@ local function padButton(text, x, y, w, h, color)
 	return b
 end
 local autoBtn = padButton("АВТОВЗЛЁТ", 0, 0, 230, 46, C.yellow)
+local camBtn = make("TextButton", {
+	Text = "КАМЕРА", Size = UDim2.new(0, 230, 0, 40), Position = UDim2.new(0, 0, 0, -48),
+	BackgroundColor3 = C.bg, BackgroundTransparency = 0.1, TextColor3 = C.blue,
+	Font = Enum.Font.GothamBold, TextSize = 15,
+}, pilotUI)
+corner(camBtn)
+stroke(camBtn)
 local upBtn = padButton("ВВЕРХ", 0, 56, 110, 80, C.blue)
 local thrUpBtn = padButton("ГАЗ +", 120, 56, 110, 80, C.green)
 local downBtn = padButton("ВНИЗ", 0, 146, 110, 80, C.blue)
@@ -689,6 +696,98 @@ local throttle = 0
 local wasPilot = false
 local sendTimer = 0
 local airTime = 0
+---------------------------------------------------------------- КАМЕРА В ПОЛЁТЕ
+-- V — сменить вид, правая кнопка мыши — осмотреться, колесо — приблизить/отдалить
+local CAM_MODES = { "СЗАДИ", "ДАЛЬНИЙ ВИД", "КАБИНА", "СБОКУ" }
+local camMode = 1
+local orbitYaw, orbitPitch, zoom = 0, 0, 0
+local camCF = nil
+local inPlaneCam = false
+local rmb = false
+
+local function nextCam()
+	camMode = camMode % #CAM_MODES + 1
+	orbitYaw, orbitPitch, zoom = 0, 0, 0
+	camCF = nil
+	toast("Камера: " .. CAM_MODES[camMode])
+end
+camBtn.MouseButton1Click:Connect(nextCam)
+
+UserInputService.InputBegan:Connect(function(io, processed)
+	if processed or hangarUI.Visible then return end
+	if io.KeyCode == Enum.KeyCode.V and inPlaneCam then
+		nextCam()
+	elseif io.UserInputType == Enum.UserInputType.MouseButton2 and inPlaneCam then
+		rmb = true
+		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
+	end
+end)
+UserInputService.InputEnded:Connect(function(io)
+	if io.UserInputType == Enum.UserInputType.MouseButton2 then
+		rmb = false
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	end
+end)
+UserInputService.InputChanged:Connect(function(io, processed)
+	if not inPlaneCam then return end
+	if io.UserInputType == Enum.UserInputType.MouseMovement and rmb then
+		orbitYaw -= io.Delta.X * 0.006
+		orbitPitch = math.clamp(orbitPitch - io.Delta.Y * 0.004, -0.9, 0.9)
+	elseif io.UserInputType == Enum.UserInputType.MouseWheel and not processed then
+		zoom = math.clamp(zoom - io.Position.Z * 6, -40, 400)
+	elseif io.UserInputType == Enum.UserInputType.Touch and not processed and io.Delta.Magnitude > 0 then
+		-- на телефоне: свайп по экрану крутит камеру
+		orbitYaw -= io.Delta.X * 0.008
+		orbitPitch = math.clamp(orbitPitch - io.Delta.Y * 0.005, -0.9, 0.9)
+	end
+end)
+
+local camRay = RaycastParams.new()
+camRay.FilterType = Enum.RaycastFilterType.Exclude
+
+local function updatePlaneCam(pl, dt)
+	local pivot = pl:GetPivot()
+	local len = pl:GetAttribute("FCLength") or 50
+	local h = pl:GetAttribute("FCHeight") or 12
+	local speed = pl:GetAttribute("Speed") or 0
+	local center = (pivot * CFrame.new(0, h * 0.5, 0)).Position
+	local look = pivot.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 0.01 then flat = Vector3.new(0, 0, -1) end
+	flat = flat.Unit
+
+	-- если не крутим камеру мышью — плавно возвращаем её за хвост
+	if not rmb and camMode ~= 3 then
+		orbitYaw *= math.max(0, 1 - dt * 1.5)
+		orbitPitch *= math.max(0, 1 - dt * 1.5)
+	end
+
+	if camMode == 3 then
+		local eye = pivot * CFrame.new(0, h * 0.62, -len * 0.4)
+		camera.CFrame = eye * CFrame.Angles(orbitPitch, orbitYaw, 0)
+		camera.FieldOfView = 80
+		camCF = nil
+		return
+	end
+
+	local dist, up, side = len * 1.3 + 12, 0.2, 0
+	if camMode == 2 then dist, up = len * 2.6 + 30, 0.32 end
+	if camMode == 4 then side, up = math.rad(90), 0.12 end
+	dist = math.max(8, dist + zoom)
+	local base = CFrame.lookAt(center, center + flat)
+	local boom = base * CFrame.Angles(0, orbitYaw + side, 0) * CFrame.Angles(-up + orbitPitch, 0, 0)
+	local pos = (boom * CFrame.new(0, 0, dist)).Position
+	-- не уходим под землю и сквозь здания
+	camRay.FilterDescendantsInstances = { pl, player.Character }
+	local hit = workspace:Raycast(center, pos - center, camRay)
+	if hit then pos = hit.Position + (center - hit.Position).Unit * 2 end
+	local aim = center + flat * len * 0.35
+	local desired = CFrame.lookAt(pos, aim)
+	camCF = camCF and camCF:Lerp(desired, math.min(1, dt * 7)) or desired
+	camera.CFrame = camCF
+	camera.FieldOfView = 70 + math.clamp(speed / 60, 0, 14)
+end
+
 local stateColors = { ["НА ЗЕМЛЕ"] = C.green, ["В ВОЗДУХЕ"] = C.blue, ["СВАЛИВАНИЕ"] = C.accent, ["КРУШЕНИЕ"] = C.red }
 
 local function key(k) return UserInputService:IsKeyDown(k) end
@@ -759,6 +858,22 @@ RunService.RenderStepped:Connect(function(dt)
 	local isPilot = seat ~= nil and seat:IsA("VehicleSeat") and seat:GetAttribute("FCPilot") == true
 
 	hud.Visible = pl ~= nil
+	local seatedInPlane = seat ~= nil and seat:IsDescendantOf(flightsFolder) and pl ~= nil
+	if seatedInPlane then
+		if not inPlaneCam or camera.CameraType ~= Enum.CameraType.Scriptable then
+			inPlaneCam = true
+			camCF = nil
+			camera.CameraType = Enum.CameraType.Scriptable
+		end
+		updatePlaneCam(pl, dt)
+	elseif inPlaneCam then
+		inPlaneCam = false
+		rmb = false
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		camera.CameraType = Enum.CameraType.Custom
+		camera.FieldOfView = 70
+		if hum then camera.CameraSubject = hum end
+	end
 	if pl then
 		local spd = pl:GetAttribute("Speed") or 0
 		local alt = pl:GetAttribute("Altitude") or 0
