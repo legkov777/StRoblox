@@ -30,7 +30,7 @@ local CFG = {
 	PASSENGER_REWARD = 25,
 	ZOMBIE_REWARD = 10,
 	START_MONEY = 300,
-	HARD_LANDING_VY = -35,
+	HARD_LANDING_VY = -50,  -- studs/с; на приборе это -25 м/с (быстрее — крушение)
 	CLIMB_DRAG = 20,
 	RESPAWN_AFTER_CRASH = 6,
 }
@@ -434,6 +434,7 @@ table.sort(planeNames, function(a, b)
 	return pa < pb
 end)
 Net:SetAttribute("Planes", table.concat(planeNames, "|"))
+Net:SetAttribute("SafeVS", math.floor(CFG.HARD_LANDING_VY * Shared.ALT * 0.8)) -- с запасом
 
 local function priceOf(name)
 	local m = hangarStore:FindFirstChild(name)
@@ -1324,7 +1325,7 @@ local function stepFlight(f, dt, now)
 	if not st.onGround then
 		st.speed -= math.sin(st.pitch) * CFG.CLIMB_DRAG * dt
 	elseif st.throttle < 0.05 then
-		st.speed -= perf.accel * 0.8 * dt
+		st.speed -= perf.accel * 1.6 * dt -- тормоза на земле
 	end
 	st.speed = math.clamp(st.speed, 0, perf.max * 1.3)
 
@@ -1380,7 +1381,7 @@ local function stepFlight(f, dt, now)
 				local hit = workspace:Raycast(a, d + d.Unit * 2, rayParams)
 				if hit then
 					local wall = hit.Normal.Y < 0.7
-					local hard = vel.Y < CFG.HARD_LANDING_VY or st.pitch < -0.3
+					local hard = vel.Y < CFG.HARD_LANDING_VY or st.pitch < -0.45
 					if wall or hard then
 						st.pos = newPos
 						local what = hit.Instance.Name
@@ -1404,12 +1405,12 @@ local function stepFlight(f, dt, now)
 
 	if newPos.Y <= gY then
 		if not st.onGround then
-			if vel.Y < CFG.HARD_LANDING_VY or st.pitch < -0.3 or math.abs(st.roll) > 0.55 then
+			if vel.Y < CFG.HARD_LANDING_VY or st.pitch < -0.45 or math.abs(st.roll) > 0.8 then
 				st.pos = newPos
 				crash(f, "Жёсткая посадка")
 				return
 			end
-			if not onRunway(newPos) and st.speed > perf.takeoff * 0.85 then
+			if not onRunway(newPos) and st.speed > perf.takeoff * 1.8 then
 				st.pos = newPos
 				crash(f, "Посадка мимо полосы")
 				return
@@ -1511,6 +1512,7 @@ local function publish(f)
 	pl:SetAttribute("Altitude", math.max(0, math.floor((st.pos.Y - gY) * Shared.ALT)))
 	pl:SetAttribute("Throttle", math.floor(st.throttle * 100 + 0.5))
 	pl:SetAttribute("Pitch", math.floor(math.deg(st.pitch) * 10) / 10)
+	pl:SetAttribute("VSpeed", math.floor(st.vel.Y * Shared.ALT * 10 + 0.5) / 10)
 	pl:SetAttribute("State", text)
 	pl:SetAttribute("Engines", alive)
 	pl:SetAttribute("Flew", st.flew)

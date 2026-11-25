@@ -70,7 +70,7 @@ local CFG = {
 	PASSENGER_REWARD = 25,
 	ZOMBIE_REWARD = 10,
 	START_MONEY = 300,
-	HARD_LANDING_VY = -35,
+	HARD_LANDING_VY = -50,  -- studs/с; на приборе это -25 м/с (быстрее — крушение)
 	CLIMB_DRAG = 20,
 	RESPAWN_AFTER_CRASH = 6,
 }
@@ -474,6 +474,7 @@ table.sort(planeNames, function(a, b)
 	return pa < pb
 end)
 Net:SetAttribute("Planes", table.concat(planeNames, "|"))
+Net:SetAttribute("SafeVS", math.floor(CFG.HARD_LANDING_VY * Shared.ALT * 0.8)) -- с запасом
 
 local function priceOf(name)
 	local m = hangarStore:FindFirstChild(name)
@@ -1364,7 +1365,7 @@ local function stepFlight(f, dt, now)
 	if not st.onGround then
 		st.speed -= math.sin(st.pitch) * CFG.CLIMB_DRAG * dt
 	elseif st.throttle < 0.05 then
-		st.speed -= perf.accel * 0.8 * dt
+		st.speed -= perf.accel * 1.6 * dt -- тормоза на земле
 	end
 	st.speed = math.clamp(st.speed, 0, perf.max * 1.3)
 
@@ -1420,7 +1421,7 @@ local function stepFlight(f, dt, now)
 				local hit = workspace:Raycast(a, d + d.Unit * 2, rayParams)
 				if hit then
 					local wall = hit.Normal.Y < 0.7
-					local hard = vel.Y < CFG.HARD_LANDING_VY or st.pitch < -0.3
+					local hard = vel.Y < CFG.HARD_LANDING_VY or st.pitch < -0.45
 					if wall or hard then
 						st.pos = newPos
 						local what = hit.Instance.Name
@@ -1444,12 +1445,12 @@ local function stepFlight(f, dt, now)
 
 	if newPos.Y <= gY then
 		if not st.onGround then
-			if vel.Y < CFG.HARD_LANDING_VY or st.pitch < -0.3 or math.abs(st.roll) > 0.55 then
+			if vel.Y < CFG.HARD_LANDING_VY or st.pitch < -0.45 or math.abs(st.roll) > 0.8 then
 				st.pos = newPos
 				crash(f, "Жёсткая посадка")
 				return
 			end
-			if not onRunway(newPos) and st.speed > perf.takeoff * 0.85 then
+			if not onRunway(newPos) and st.speed > perf.takeoff * 1.8 then
 				st.pos = newPos
 				crash(f, "Посадка мимо полосы")
 				return
@@ -1551,6 +1552,7 @@ local function publish(f)
 	pl:SetAttribute("Altitude", math.max(0, math.floor((st.pos.Y - gY) * Shared.ALT)))
 	pl:SetAttribute("Throttle", math.floor(st.throttle * 100 + 0.5))
 	pl:SetAttribute("Pitch", math.floor(math.deg(st.pitch) * 10) / 10)
+	pl:SetAttribute("VSpeed", math.floor(st.vel.Y * Shared.ALT * 10 + 0.5) / 10)
 	pl:SetAttribute("State", text)
 	pl:SetAttribute("Engines", alive)
 	pl:SetAttribute("Flew", st.flew)
@@ -2358,7 +2360,7 @@ end
 
 ---------------------------------------------------------------- ПРИБОРЫ
 local hud = make("Frame", {
-	BackgroundTransparency = 1, Size = UDim2.new(0, 540, 0, 56), Position = UDim2.new(0.5, -270, 0, 44),
+	BackgroundTransparency = 1, Size = UDim2.new(0, 660, 0, 56), Position = UDim2.new(0.5, -330, 0, 44),
 }, flightUI)
 make("UIListLayout", {
 	FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6),
@@ -2379,6 +2381,7 @@ local speedL = stat("СКОРОСТЬ", 110)
 local altL = stat("ВЫСОТА", 95)
 local thrL = stat("ГАЗ", 75)
 local pitchL = stat("ТАНГАЖ", 80)
+local vsL = stat("ВЕРТ. СКОРОСТЬ", 115)
 local stateL = stat("СОСТОЯНИЕ", 150)
 hud.Visible = false
 
@@ -2554,7 +2557,8 @@ local function padButton(text, x, y, w, h, color)
 	stroke(b)
 	return b
 end
-local autoBtn = padButton("АВТОВЗЛЁТ", 0, 0, 230, 46, C.yellow)
+local autoBtn = padButton("АВТОВЗЛЁТ", 0, 0, 112, 46, C.yellow)
+local landBtn = padButton("АВТО-\nПОСАДКА", 118, 0, 112, 46, C.green)
 local camBtn = make("TextButton", {
 	Text = "КАМЕРА", Size = UDim2.new(0, 230, 0, 40), Position = UDim2.new(0, 0, 0, -48),
 	BackgroundColor3 = C.bg, BackgroundTransparency = 0.1, TextColor3 = C.blue,
@@ -2581,7 +2585,9 @@ bindHold(downBtn, "down")
 bindHold(thrUpBtn, "thrUp")
 bindHold(thrDownBtn, "thrDown")
 local auto = false
-autoBtn.MouseButton1Click:Connect(function() auto = not auto end)
+local autoLand = false
+autoBtn.MouseButton1Click:Connect(function() auto = not auto autoLand = false end)
+landBtn.MouseButton1Click:Connect(function() autoLand = not autoLand auto = false end)
 
 ---------------------------------------------------------------- АНГАР
 local names = {}
@@ -3075,6 +3081,98 @@ local function myPlane(seat)
 	return flightsFolder:FindFirstChild(player.Name)
 end
 
+---------------------------------------------------------------- ПРИБОРЫ ПОСАДКИ
+local landPanel = make("Frame", {
+	Visible = false, Size = UDim2.new(0, 420, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+	Position = UDim2.new(0.5, -210, 0, 108), BackgroundColor3 = C.bg, BackgroundTransparency = 0.08, BorderSizePixel = 0,
+}, flightUI)
+corner(landPanel, 8)
+make("UIStroke", { Color = C.green, Thickness = 2 }, landPanel)
+make("UIPadding", { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14), PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 10) }, landPanel)
+make("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }, landPanel)
+local landTitle = label(landPanel, { Size = UDim2.new(1, 0, 0, 16), TextSize = 12, Font = Enum.Font.GothamBold, TextColor3 = C.green, Text = "ЗАХОД НА ПОСАДКУ", LayoutOrder = 0 })
+local function landRow(title, order)
+	local r = make("Frame", { Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, LayoutOrder = order }, landPanel)
+	label(r, { Size = UDim2.new(0, 110, 1, 0), TextSize = 12, Font = Enum.Font.GothamBold, TextColor3 = C.dim, Text = title })
+	local v = label(r, { Position = UDim2.new(0, 110, 0, 0), Size = UDim2.new(0, 120, 1, 0), TextSize = 19, Font = Enum.Font.GothamBlack })
+	local need = label(r, { Position = UDim2.new(0, 232, 0, 0), Size = UDim2.new(1, -232, 1, 0), TextSize = 12, Font = Enum.Font.GothamMedium, TextColor3 = C.dim })
+	return v, need
+end
+local lSpeed, lSpeedNeed = landRow("СКОРОСТЬ", 1)
+local lVS, lVSNeed = landRow("СНИЖЕНИЕ", 2)
+local lRw, lRwNeed = landRow("ПОЛОСА", 3)
+local landHint = label(landPanel, { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, TextSize = 15, Font = Enum.Font.GothamBold, TextWrapped = true, TextColor3 = C.yellow, LayoutOrder = 4 })
+
+local runwaySegs = {}
+task.spawn(function()
+	local rw = workspace:WaitForChild("Runway", 30)
+	if rw then
+		for _, p in ipairs(rw:GetChildren()) do
+			if p:IsA("BasePart") then table.insert(runwaySegs, p) end
+		end
+	end
+end)
+-- где ближайшая полоса: смещение от осевой, расстояние, угол к оси
+local function runwayInfo(pos, look)
+	local best, bd = nil, nil
+	for _, p in ipairs(runwaySegs) do
+		local lp = p.CFrame:PointToObjectSpace(pos)
+		local dz = math.max(0, math.abs(lp.Z) - p.Size.Z / 2)
+		local d = math.sqrt(lp.X * lp.X + dz * dz)
+		if not bd or d < bd then best, bd = p, d end
+	end
+	if not best then return nil end
+	local lp = best.CFrame:PointToObjectSpace(pos)
+	local lf = best.CFrame:VectorToObjectSpace(look)
+	local dir = (lf.Z < 0) and -1 or 1
+	return { x = lp.X, dist = bd, dir = dir, ang = math.atan2(dir * lf.X, math.abs(lf.Z)), halfW = best.Size.X / 2 }
+end
+
+local function updateLanding(pl, st, spd, alt, vs)
+	local takeoff = pl:GetAttribute("TakeoffKmh") or 175
+	local safe = Net:GetAttribute("SafeVS") or -20
+	local show = autoLand or (st ~= "НА ЗЕМЛЕ" and alt < 150 and airTime > 6 and (throttle < 0.6 or vs < -3))
+	landPanel.Visible = show
+	if not show then return false end
+	landTitle.Text = autoLand and "АВТОПОСАДКА — самолёт садится сам" or "ЗАХОД НА ПОСАДКУ"
+	local lo, hi = math.floor(takeoff * 1.1), math.floor(takeoff * 1.6)
+	lSpeed.Text = spd .. " км/ч"
+	lSpeedNeed.Text = ("нужно %d–%d"):format(lo, hi)
+	lSpeed.TextColor3 = (spd < takeoff * 0.95) and C.red or ((spd >= lo and spd <= hi) and C.green or C.yellow)
+	lVS.Text = ("%.1f м/с"):format(vs)
+	lVSNeed.Text = ("не быстрее %d м/с"):format(math.abs(safe))
+	lVS.TextColor3 = (vs < safe) and C.red or ((vs < safe * 0.5) and C.yellow or C.green)
+	local info = (#runwaySegs > 0) and runwayInfo(pl:GetPivot().Position, pl:GetPivot().LookVector) or nil
+	local hint
+	if info then
+		lRw.Text = ("%.1f км"):format(info.dist * Shared.REAL_M / 1000 * 3)
+		if math.abs(info.ang) > math.rad(30) then
+			lRwNeed.Text = "развернись вдоль полосы"
+			lRw.TextColor3 = C.red
+		elseif math.abs(info.x) < info.halfW * 0.6 then
+			lRwNeed.Text = "по центру — отлично"
+			lRw.TextColor3 = C.green
+		else
+			local right = info.x * info.dir > 0
+			lRwNeed.Text = (right and "полоса правее на " or "полоса левее на ") .. math.floor(math.abs(info.x) * Shared.REAL_M * 3) .. " м"
+			lRw.TextColor3 = C.yellow
+		end
+	end
+	if vs < safe then
+		hint = "СЛИШКОМ БЫСТРО ПАДАЕШЬ! Стрелка вверх — подними нос."
+	elseif spd < takeoff * 0.95 then
+		hint = "Мало скорости — добавь газ (W), иначе свалишься."
+	elseif spd > hi then
+		hint = "Слишком быстро — сбрось газ (S)."
+	elseif alt < 12 then
+		hint = "Почти земля: чуть нос вверх, газ на 0 (S) — и тормози."
+	else
+		hint = "Держи цифры зелёными и плавно снижайся к полосе."
+	end
+	landHint.Text = autoLand and "Любая кнопка управления — отключить." or hint
+	return true
+end
+
 local function updateCoach(pl, st, spd, alt)
 	local takeoff = pl:GetAttribute("TakeoffKmh") or 175
 	local flew = pl:GetAttribute("Flew") == true
@@ -3098,8 +3196,8 @@ local function updateCoach(pl, st, spd, alt)
 		setCoach("НАБОР ВЫСОТЫ", ("Держи нос вверх, не убирай газ. Высота %d м"):format(alt), alt / 40)
 	elseif airTime < 8 then
 		setCoach("ЛЕТИМ!", "A/D — поворот, стрелки — нос. Для посадки: меньше газа и плавно вниз.", nil)
-	elseif alt < 60 and throttle < 0.5 then
-		setCoach("ЗАХОД НА ПОСАДКУ", "Снижайся плавно. У самой земли — чуть вверх, чтобы мягко коснуться.", nil)
+	elseif airTime < 25 then
+		setCoach("КАК СЕСТЬ", "Выйди на полосу, сбрось газ (S) — появятся приборы посадки. Или жми АВТОПОСАДКА.", nil)
 	else
 		coach.Visible = false
 	end
@@ -3209,6 +3307,9 @@ RunService.RenderStepped:Connect(function(dt)
 	local spd = pl:GetAttribute("Speed") or 0
 	local alt = pl:GetAttribute("Altitude") or 0
 	local pitchDeg = pl:GetAttribute("Pitch") or 0
+	local vs = pl:GetAttribute("VSpeed") or 0
+	vsL.Text = ("%+.1f м/с"):format(vs)
+	vsL.TextColor3 = (vs < (Net:GetAttribute("SafeVS") or -20)) and C.red or C.text
 	if st == "В ВОЗДУХЕ" or st == "СВАЛИВАНИЕ" then airTime += dt else airTime = 0 end
 
 	local typing = UserInputService:GetFocusedTextBox() ~= nil
@@ -3248,11 +3349,51 @@ RunService.RenderStepped:Connect(function(dt)
 			if alt >= 60 then auto = false end
 		end
 	end
-	autoBtn.Text = auto and "АВТОВЗЛЁТ: ВКЛ" or "АВТОВЗЛЁТ"
+	autoBtn.Text = auto and "ВЗЛЁТ: ВКЛ" or "АВТОВЗЛЁТ"
+
+	-- автопосадка: держит скорость захода, плавное снижение, выравнивание на полосу, тормоз
+	if autoLand then
+		local userThr = held.thrUp or held.thrDown or (not typing and (key(Enum.KeyCode.W) or key(Enum.KeyCode.S)))
+		if pitch ~= 0 or userThr or st == "КРУШЕНИЕ" then
+			autoLand = false
+		elseif st == "НА ЗЕМЛЕ" then
+			throttle = 0
+			pitch = 0
+			if spd < 2 then
+				autoLand = false
+				toast("Посадка завершена!")
+			end
+		else
+			local takeoff = pl:GetAttribute("TakeoffKmh") or 175
+			local tgt = takeoff * 1.3
+			throttle = math.clamp(throttle + math.clamp((tgt - spd) / tgt, -1, 1) * 0.8 * dt, 0.05, 1)
+			local spStuds = math.max(spd / Shared.KMH, 1)
+			local tvs = (alt > 100) and -12 or ((alt > 40) and -6 or ((alt > 12) and -3 or -1.2))
+			-- глиссада: если полоса впереди, снижаемся так, чтобы коснуться у её начала
+			local g = runwayInfo(pl:GetPivot().Position, pl:GetPivot().LookVector)
+			if g and g.dist > 60 and math.abs(g.ang) < math.rad(40) and alt > 12 then
+				local timeTo = (g.dist / spStuds)
+				tvs = math.clamp(-alt / math.max(timeTo, 1), -12, -1.5)
+			end
+			local dp = math.deg(math.asin(math.clamp((tvs / Shared.ALT) / spStuds, -0.3, 0.3))) + (tvs - vs) * 0.6
+			dp = math.clamp(dp, -12, 12)
+			pitch = math.clamp((dp - pitchDeg) * 0.35, -1, 1)
+			local info = runwayInfo(pl:GetPivot().Position, pl:GetPivot().LookVector)
+			if info and info.dist < 6000 then
+				local desired = math.clamp(-info.dir * info.x * 0.004, -0.6, 0.6)
+				steer = math.clamp((info.ang - desired) * 2.5, -1, 1)
+			end
+		end
+	end
+	landBtn.Text = autoLand and "ПОСАДКА: ВКЛ" or "АВТО-\nПОСАДКА"
 
 	throttle = math.clamp(throttle + thrIn * 0.5 * dt, 0, 1)
 	thrL.Text = math.floor(throttle * 100 + 0.5) .. "%"
-	updateCoach(pl, st, spd, alt)
+	if updateLanding(pl, st, spd, alt, vs) then
+		coach.Visible = false
+	else
+		updateCoach(pl, st, spd, alt)
+	end
 
 	sendTimer += dt
 	if sendTimer >= 1 / 15 then
