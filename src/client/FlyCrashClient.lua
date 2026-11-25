@@ -87,7 +87,7 @@ end
 
 ---------------------------------------------------------------- ПРИБОРЫ
 local hud = make("Frame", {
-	BackgroundTransparency = 1, Size = UDim2.new(0, 660, 0, 56), Position = UDim2.new(0.5, -330, 0, 44),
+	BackgroundTransparency = 1, Size = UDim2.new(0, 780, 0, 56), Position = UDim2.new(0.5, -390, 0, 44),
 }, flightUI)
 make("UIListLayout", {
 	FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6),
@@ -109,6 +109,7 @@ local altL = stat("ВЫСОТА", 95)
 local thrL = stat("ГАЗ", 75)
 local pitchL = stat("ТАНГАЖ", 80)
 local vsL = stat("ВЕРТ. СКОРОСТЬ", 115)
+local gearL = stat("ШАССИ", 110)
 local stateL = stat("СОСТОЯНИЕ", 150)
 hud.Visible = false
 
@@ -266,7 +267,7 @@ make("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.Layo
 label(controls, { Size = UDim2.new(1, 0, 0, 16), TextSize = 11, TextColor3 = C.dim, Font = Enum.Font.GothamBold, Text = "УПРАВЛЕНИЕ", LayoutOrder = 0 })
 for i, row in ipairs({
 	{ "W", "Газ больше" }, { "S", "Газ меньше" }, { "A D", "Поворот" },
-	{ "↑ ↓", "Нос вверх / вниз" }, { "V", "Камера" }, { "ПКМ", "Осмотреться" }, { "R", "Заново" }, { "F", "Выйти" }, { "H", "Ангар" },
+	{ "↑ ↓", "Нос вверх / вниз" }, { "G", "Шасси" }, { "V", "Камера" }, { "ПКМ", "Осмотреться" }, { "R", "Заново" }, { "F", "Выйти" }, { "H", "Ангар" },
 }) do
 	local r = make("Frame", { Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, LayoutOrder = i }, controls)
 	local k = label(r, {
@@ -328,7 +329,7 @@ for i = 1, 4 do
 	pbutton(g1, "Двигатель " .. i, C.accent, function() ChaosEvent:FireServer("engine", i) end)
 end
 local g2 = section("02  АВАРИЙНЫЕ СОБЫТИЯ")
-for _, e in ipairs({ { "Пожар", "fire" }, { "Падение", "fall" }, { "Взрыв", "explosion" }, { "Гуси", "geese" }, { "Дрон", "drone" }, { "Встречный", "plane" }, { "Гроза", "weather" } }) do
+for _, e in ipairs({ { "Пожар", "fire" }, { "Падение", "fall" }, { "Взрыв", "explosion" }, { "Гуси", "geese" }, { "Дрон", "drone" }, { "Встречный", "plane" }, { "Гроза", "weather" }, { "Шасси", "gear" } }) do
 	pbutton(g2, e[1], C.accent, function() ChaosEvent:FireServer(e[2]) end)
 end
 local g3 = section("03  СВЯЗЬ И ЗВУКИ")
@@ -352,8 +353,16 @@ local function padButton(text, x, y, w, h, color)
 end
 local autoBtn = padButton("АВТОВЗЛЁТ", 0, 0, 112, 46, C.yellow)
 local landBtn = padButton("АВТО-\nПОСАДКА", 118, 0, 112, 46, C.green)
+local gearBtn = make("TextButton", {
+	Text = "ШАССИ (G)", Size = UDim2.new(0, 112, 0, 40), Position = UDim2.new(0, 118, 0, -48),
+	BackgroundColor3 = C.bg, BackgroundTransparency = 0.1, TextColor3 = C.green,
+	Font = Enum.Font.GothamBold, TextSize = 15,
+}, pilotUI)
+corner(gearBtn)
+stroke(gearBtn)
+gearBtn.MouseButton1Click:Connect(function() HangarEvent:FireServer("gear") end)
 local camBtn = make("TextButton", {
-	Text = "КАМЕРА", Size = UDim2.new(0, 230, 0, 40), Position = UDim2.new(0, 0, 0, -48),
+	Text = "КАМЕРА", Size = UDim2.new(0, 112, 0, 40), Position = UDim2.new(0, 0, 0, -48),
 	BackgroundColor3 = C.bg, BackgroundTransparency = 0.1, TextColor3 = C.blue,
 	Font = Enum.Font.GothamBold, TextSize = 15,
 }, pilotUI)
@@ -379,6 +388,7 @@ bindHold(thrUpBtn, "thrUp")
 bindHold(thrDownBtn, "thrDown")
 local auto = false
 local autoLand = false
+local gearReqT = 0
 autoBtn.MouseButton1Click:Connect(function() auto = not auto autoLand = false end)
 landBtn.MouseButton1Click:Connect(function() autoLand = not autoLand auto = false end)
 
@@ -867,6 +877,8 @@ UserInputService.InputBegan:Connect(function(io, processed)
 		openHangar()
 	elseif k == Enum.KeyCode.R then
 		HangarEvent:FireServer("respawn")
+	elseif k == Enum.KeyCode.G then
+		HangarEvent:FireServer("gear")
 	elseif k == Enum.KeyCode.F then
 		local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 		if hum and hum.SeatPart then hum.Sit = false end
@@ -1061,7 +1073,9 @@ local function updateLanding(pl, st, spd, alt, vs)
 			lRw.TextColor3 = C.yellow
 		end
 	end
-	if vs < safe then
+	if pl:GetAttribute("Gear") == "UP" then
+		hint = pl:GetAttribute("GearJam") and "ШАССИ ЗАКЛИНИЛО — не садись, уходи на круг!" or "ВЫПУСТИ ШАССИ — клавиша G!"
+	elseif vs < safe then
 		hint = "СЛИШКОМ БЫСТРО ПАДАЕШЬ! Стрелка вверх — подними нос."
 	elseif spd < takeoff * 0.95 then
 		hint = "Мало скорости — добавь газ (W), иначе свалишься."
@@ -1221,6 +1235,10 @@ RunService.RenderStepped:Connect(function(dt)
 	local vs = pl:GetAttribute("VSpeed") or 0
 	vsL.Text = ("%+.1f м/с"):format(vs)
 	vsL.TextColor3 = (vs < (Net:GetAttribute("SafeVS") or -20)) and C.red or C.text
+	local gear = pl:GetAttribute("Gear") or "DOWN"
+	local jam = pl:GetAttribute("GearJam") == true
+	gearL.Text = jam and "ЗАКЛИНИЛО" or (gear == "DOWN" and "ВЫПУЩЕНЫ" or (gear == "UP" and "УБРАНЫ" or "—"))
+	gearL.TextColor3 = jam and C.red or (gear == "DOWN" and C.green or (gear == "UP" and C.yellow or C.dim))
 	if st == "В ВОЗДУХЕ" or st == "СВАЛИВАНИЕ" then airTime += dt else airTime = 0 end
 
 	local typing = UserInputService:GetFocusedTextBox() ~= nil
@@ -1257,7 +1275,10 @@ RunService.RenderStepped:Connect(function(dt)
 			if spd >= takeoff - 2 or st ~= "НА ЗЕМЛЕ" then
 				pitch = (pitchDeg < 12) and 1 or 0
 			end
-			if alt >= 60 then auto = false end
+			if alt >= 60 then
+				auto = false
+				if pl:GetAttribute("Gear") == "DOWN" then HangarEvent:FireServer("gear") end
+			end
 		end
 	end
 	autoBtn.Text = auto and "ВЗЛЁТ: ВКЛ" or "АВТОВЗЛЁТ"
@@ -1277,6 +1298,10 @@ RunService.RenderStepped:Connect(function(dt)
 		else
 			local takeoff = pl:GetAttribute("TakeoffKmh") or 175
 			local tgt = takeoff * 1.3
+			if pl:GetAttribute("Gear") == "UP" and not pl:GetAttribute("GearJam") and os.clock() - (gearReqT or 0) > 1.5 then
+				gearReqT = os.clock()
+				HangarEvent:FireServer("gear")
+			end
 			throttle = math.clamp(throttle + math.clamp((tgt - spd) / tgt, -1, 1) * 0.8 * dt, 0.05, 1)
 			local spStuds = math.max(spd / Shared.KMH, 1)
 			local tvs = (alt > 100) and -12 or ((alt > 40) and -6 or ((alt > 12) and -3 or -1.2))

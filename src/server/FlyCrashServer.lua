@@ -8,6 +8,7 @@
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local IS_STUDIO = RunService:IsStudio()
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
 local Lighting = game:GetService("Lighting")
@@ -37,6 +38,9 @@ local CFG = {
 
 -- ПРОМОКОДЫ: код = сколько денег даёт. Каждый игрок может активировать код один раз.
 -- Добавляй свои строки: ["МОЙКОД"] = 1000,
+-- Код из одних цифр (например 1250) даёт ровно столько денег — но только владельцу игры
+-- и в Studio, чтобы обычные игроки не накручивали.
+local NUMERIC_CODES_FOR_OWNER = true
 local CODES = {
 	["666"] = 666,
 	["FLYCRASH"] = 1000,
@@ -320,6 +324,42 @@ local function prepPlane(model)
 	for i = 1, 4 do
 		model:SetAttribute("FCSlot" .. i, slots[i])
 	end
+
+	-- 6а. Шасси: детали (или их родительские модели) с «колёсными» именами
+	local function gearName(n)
+		n = string.lower(n)
+		if string.find(n, "light", 1, true) then return false end
+		for _, w in ipairs({ "gear", "wheel", "tire", "tyre", "bogie", "axle", "шасси", "колес" }) do
+			if string.find(n, w, 1, true) then return true end
+		end
+		return string.sub(n, 1, 5) == "strut"
+	end
+	local gearCount = 0
+	for _, p in ipairs(visible) do
+		if not p:IsA("Seat") and not p:IsA("VehicleSeat") and p:GetAttribute("FCEngine") == nil then
+			local a = p
+			while a and a ~= model do
+				if gearName(a.Name) then
+					p:SetAttribute("FCGear", true)
+					gearCount += 1
+					break
+				end
+				a = a.Parent
+			end
+		end
+	end
+	if gearCount == 0 then
+		-- имён нет: считаем шасси мелкие детали у самого низа самолёта
+		local band = minY + size.Y * 0.14
+		for _, p in ipairs(visible) do
+			if p:GetAttribute("FCEngine") == nil and not p:IsA("Seat") and not p:IsA("VehicleSeat")
+				and p.Position.Y + p.Size.Y / 2 < band and math.max(p.Size.X, p.Size.Y, p.Size.Z) < length * 0.12 then
+				p:SetAttribute("FCGear", true)
+				gearCount += 1
+			end
+		end
+	end
+	model:SetAttribute("FCGearCount", gearCount)
 
 	-- 6. Основные цвета (для ливрей): два цвета с наибольшей площадью, не тёмные и не стекло
 	local areas = {}
@@ -875,7 +915,36 @@ local function ahead(f, minDist)
 	return f.core.Position + cf.LookVector * dist, cf.RightVector
 end
 
+---------------------------------------------------------------- ШАССИ
+local function setGear(f, down)
+	if not f.hasGear or f.gearDown == down then return end
+	f.gearDown = down
+	for _, p in ipairs(f.gearParts) do
+		if p.Parent then
+			if down then
+				p.Transparency = p:GetAttribute("FCGearT") or 0
+				p.CanCollide = p:GetAttribute("FCGearC") == true
+			else
+				p:SetAttribute("FCGearT", p.Transparency)
+				p:SetAttribute("FCGearC", p.CanCollide)
+				p.Transparency = 1
+				p.CanCollide = false
+			end
+		end
+	end
+	playSound("Gear", f.core)
+end
+
 local CHAOS = {}
+
+CHAOS.gear = function(f)
+	if not f.hasGear then return false end
+	f.gearJamUntil = os.clock() + 20
+	if not f.state.onGround then setGear(f, false) end
+	playSound("Alarm", f.core)
+	msg(f, "ШАССИ ЗАКЛИНИЛО! 20 секунд их не выпустить — не садись!")
+	return true
+end
 
 CHAOS.engine = function(f, arg)
 	local i = tonumber(arg)
@@ -1084,6 +1153,14 @@ spawnFlight = function(owner, planeName, livery)
 		if d:IsA("Seat") or d:IsA("VehicleSeat") then table.insert(f.seats, d) end
 	end
 
+	f.gearParts = {}
+	for _, d in ipairs(plane:GetDescendants()) do
+		if d:IsA("BasePart") and d:GetAttribute("FCGear") then table.insert(f.gearParts, d) end
+	end
+	f.hasGear = #f.gearParts > 0
+	f.gearDown = true
+	f.gearJamUntil = 0
+
 	f.engineStarted = false
 	f.engineSound = playSound("EngineLoop", f.core, true)
 	if f.engineSound then f.engineSound.Volume = 0 end
@@ -1177,6 +1254,16 @@ HangarEvent.OnServerEvent:Connect(function(p, action, name, livery)
 		if typeof(name) ~= "string" then return end
 		local code = string.upper((string.gsub(name, "%s", "")))
 		local d = pdata[p]
+		if NUMERIC_CODES_FOR_OWNER and string.match(code, "^%d+$") then
+			if IS_STUDIO or p.UserId == game.CreatorId then
+				local sum = math.clamp(tonumber(code) or 0, 1, 10000000)
+				addMoney(p, sum, "Код владельца")
+				task.spawn(savePlayer, p)
+			else
+				HangarEvent:FireClient(p, "toast", "Коды-суммы работают только у владельца игры")
+			end
+			return
+		end
 		local amount = CODES[code]
 		if not d or not amount then
 			HangarEvent:FireClient(p, "toast", "Такого кода нет")
@@ -1190,6 +1277,22 @@ HangarEvent.OnServerEvent:Connect(function(p, action, name, livery)
 		addMoney(p, amount, "Промокод " .. code)
 		HangarEvent:FireClient(p, "toast", ("Код активирован: +$%d"):format(amount))
 		task.spawn(savePlayer, p)
+	elseif action == "gear" then
+		for _, f in pairs(flights) do
+			if getPilot(f) == p then
+				if not f.hasGear then
+					msg(f, "У этой модели шасси не убираются.")
+				elseif os.clock() < (f.gearJamUntil or 0) then
+					msg(f, "Шасси заклинило! Подожди.")
+				elseif f.state.onGround and f.gearDown then
+					msg(f, "На земле шасси не убрать — сначала взлети.")
+				else
+					setGear(f, not f.gearDown)
+					msg(f, f.gearDown and "Шасси выпущены." or "Шасси убраны. +12% к скорости.")
+				end
+				return
+			end
+		end
 	elseif action == "respawn" then
 		local f = flights[p]
 		if f then spawnFlight(p, f.name, f.livery) end
@@ -1324,7 +1427,7 @@ local function stepFlight(f, dt, now)
 		f.engineSound.PlaybackSpeed = 0.7 + st.throttle * 0.5 + (st.speed / perf.max) * 0.3
 	end
 
-	local target = st.throttle * perf.max * (alive / 4)
+	local target = st.throttle * perf.max * (alive / 4) * ((f.hasGear and not f.gearDown) and 1.12 or 1)
 	local diff = target - st.speed
 	local rate = (diff > 0) and perf.accel or perf.accel * 0.6
 	st.speed += math.clamp(diff, -rate * dt, rate * dt)
@@ -1411,6 +1514,11 @@ local function stepFlight(f, dt, now)
 
 	if newPos.Y <= gY then
 		if not st.onGround then
+			if f.hasGear and not f.gearDown then
+				st.pos = newPos
+				crash(f, "Посадка без шасси")
+				return
+			end
 			if vel.Y < CFG.HARD_LANDING_VY or st.pitch < -0.45 or math.abs(st.roll) > 0.8 then
 				st.pos = newPos
 				crash(f, "Жёсткая посадка")
@@ -1522,6 +1630,8 @@ local function publish(f)
 	pl:SetAttribute("State", text)
 	pl:SetAttribute("Engines", alive)
 	pl:SetAttribute("Flew", st.flew)
+	pl:SetAttribute("Gear", not f.hasGear and "NONE" or (f.gearDown and "DOWN" or "UP"))
+	pl:SetAttribute("GearJam", os.clock() < (f.gearJamUntil or 0))
 	-- садиться можно только в стоящий самолёт
 	if f.prompt and f.prompt.Parent then
 		f.prompt.Enabled = st.onGround and st.speed < 5 and not st.crashed

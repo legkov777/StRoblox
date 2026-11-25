@@ -465,7 +465,7 @@ out = ['<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" '
            container("Folder", "FlyCrashSounds", [
                container("Sound", n, [], '<float name="Volume">0.8</float>')
                for n in ["EngineLoop", "EngineStart", "Takeoff", "Landing", "Explosion", "Crash",
-                         "Fire", "Alarm", "Geese", "Pilots", "Stewardess", "Coin"]
+                         "Fire", "Alarm", "Geese", "Pilots", "Stewardess", "Coin", "Gear"]
            ])]),
        container("ServerScriptService", "ServerScriptService", [
            script("Script", "FlyCrashServer", server_src),
