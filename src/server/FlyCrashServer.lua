@@ -490,28 +490,69 @@ local function prepPlane(model)
 	end)
 	if not okGear then warn("FlyCrash: " .. model.Name .. " — шасси не распознаны: " .. tostring(errGear)) end
 
-	-- пропеллеры: детали (или их родители) с «винтовыми» именами — крутим их в полёте
-	pcall(function()
+	-- пропеллеры: 1) детали с «винтовыми» именами; 2) невидимые «роторы» (диски-заглушки
+	-- из китов) — помечаем видимые детали вокруг них; 3) плоские диски, смотрящие вперёд
+	local okProp, errProp = pcall(function()
 		local PROP_WORDS = { "prop", "rotor", "blade", "spinner", "винт", "лопаст" }
-		local nProp = 0
-		for _, part in ipairs(visible) do
+		local function propName(part)
 			local a = part
 			while a and a ~= model do
 				local n = string.lower(a.Name)
-				local hit = false
 				for _, w in ipairs(PROP_WORDS) do
-					if string.find(n, w, 1, true) then hit = true break end
-				end
-				if hit then
-					part:SetAttribute("FCProp", true)
-					nProp += 1
-					break
+					if string.find(n, w, 1, true) then return true end
 				end
 				a = a.Parent
+			end
+			return false
+		end
+		local function okPart(q)
+			return not q:IsA("Seat") and not q:IsA("VehicleSeat") and q ~= pilot
+				and not q:GetAttribute("FCGear") and q.Name ~= "Root" and q.Name ~= "Core"
+		end
+		local nProp, hints = 0, {}
+		local function tag(q, key)
+			if q:GetAttribute("FCProp") then return end
+			q:SetAttribute("FCProp", true)
+			if key then q:SetAttribute("FCPropKey", key) end
+			nProp += 1
+		end
+		for _, q in ipairs(parts) do
+			if okPart(q) and propName(q) then
+				if q.Transparency >= 0.95 then
+					table.insert(hints, { pos = q.Position, r = math.max(q.Size.X, q.Size.Y, q.Size.Z) / 2 })
+				else
+					tag(q)
+				end
+			end
+		end
+		-- видимые детали вокруг невидимых роторов
+		for hi, h in ipairs(hints) do
+			for _, q in ipairs(visible) do
+				if okPart(q) and (q.Position - h.pos).Magnitude <= math.max(1.5, h.r * 0.45)
+					and math.max(q.Size.X, q.Size.Y, q.Size.Z) <= h.r * 2.4 then
+					tag(q, "h" .. hi)
+				end
+			end
+		end
+		-- плоские диски (лопасти одной мешью), ось которых смотрит вдоль носа
+		local nose3 = Vector3.new(nose.X, 0, nose.Z).Unit
+		for i, q in ipairs(visible) do
+			if okPart(q) and not q:GetAttribute("FCProp") then
+				local s = q.Size
+				local dims = {
+					{ s.X, q.CFrame.RightVector }, { s.Y, q.CFrame.UpVector }, { s.Z, q.CFrame.LookVector },
+				}
+				table.sort(dims, function(u, v) return u[1] < v[1] end)
+				local thin, mid, big = dims[1][1], dims[2][1], dims[3][1]
+				if big >= 2 and big <= span * 0.35 and mid >= big * 0.8 and thin <= big * 0.4
+					and math.abs(dims[1][2]:Dot(nose3)) >= 0.85 then
+					tag(q, "d" .. i)
+				end
 			end
 		end
 		model:SetAttribute("FCPropCount", nProp)
 	end)
+	if not okProp then warn("FlyCrash: " .. model.Name .. " — винты: " .. tostring(errProp)) end
 
 	local okCol, errCol = pcall(function()
 	-- 6. Основные цвета (для ливрей): два цвета с наибольшей площадью, не тёмные и не стекло
@@ -1351,8 +1392,9 @@ spawnFlight = function(owner, planeName, livery)
 		local groups, order = {}, {}
 		for _, d in ipairs(plane:GetDescendants()) do
 			if d:IsA("BasePart") and d:GetAttribute("FCProp") then
+				local pk = d:GetAttribute("FCPropKey")
 				local slot = d:GetAttribute("FCEngine")
-				local key = slot and ("s" .. slot) or ("p" .. #order + 1)
+				local key = pk or (slot and ("s" .. slot)) or ("p" .. #order + 1)
 				if not groups[key] then
 					groups[key] = { key = key, parts = {} }
 					table.insert(order, groups[key])
