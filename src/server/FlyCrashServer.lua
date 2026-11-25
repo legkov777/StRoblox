@@ -71,6 +71,16 @@ local META = {
 		desc = "Самый продаваемый лайнер в истории. Рабочая лошадка коротких рейсов." },
 	{ key = "747", cap = 120, cat = "ДЖАМБО-ДЖЕТ", top = 920, eng = "4 × PW4056", year = 1969, price = 4000,
 		desc = "Королева неба с горбом второй палубы. Огромный, тяжёлый, величественный." },
+	{ key = "embraer", cap = 6, cat = "БИЗНЕС-ДЖЕТ", top = 722, eng = "2 × PW617F", year = 2007, price = 400,
+		desc = "Лёгкий бизнес-джет: быстрый, послушный, но всего на шесть пассажиров." },
+	{ key = "ac-130", cap = 40, cat = "ВОЕННЫЙ ТРАНСПОРТНИК", top = 480, eng = "4 × T56", year = 1990, price = 3000,
+		desc = "Тяжёлый четырёхмоторный транспортник. Медленный, но берёт много людей и садится куда угодно." },
+	{ key = "jh-7", cap = 2, cat = "ИСТРЕБИТЕЛЬ-БОМБАРДИРОВЩИК", top = 1400, eng = "2 × WS-9", year = 1988, price = 5000,
+		desc = "Сверхзвуковой истребитель. Почти без мест, зато быстрее всех уходит от зомби." },
+	{ key = "лайнер", cap = 18, cat = "ПАССАЖИРСКИЙ ЛАЙНЕР", top = 700, eng = "2 × реактивный", year = 1980, price = 900,
+		desc = "Простой лайнер на 18 мест — хороший шаг после маленьких самолётов." },
+	{ key = "тарый", cap = 1, cat = "КЛАССИКА ROBLOX", top = 260, eng = "1 × винт", year = 2009, price = 0,
+		desc = "Самолётик из старого Roblox. Для ностальгии." },
 	{ key = "225", cap = 200, cat = "ТЯЖЁЛЫЙ ГРУЗОВОЙ", top = 850, eng = "6 × Д-18Т", year = 1988, price = 6000,
 		desc = "Самый большой самолёт из когда-либо построенных. Разгоняется долго, падает эпично." },
 }
@@ -489,11 +499,16 @@ local SKIP = {
 	Zombies = true, Birds = true, Drones = true, Flights = true, FlyCrashDebris = true, ZombiesLive = true,
 	Civilians = true, SafeAirport = true, PassengerGate = true,
 }
-local PLANE_WORDS = { "plane", "cessna", "boeing", "airbus", "atr", "jet", "aircraft", "fly", "самол", "707", "737", "747" }
+local PLANE_WORDS = {
+	"plane", "cessna", "boeing", "airbus", "atr", "jet", "aircraft", "fly", "самол", "707", "737", "747",
+	"embraer", "phenom", "lockheed", "gunship", "c-130", "antonov", "tupolev", "ilyushin", "sukhoi", "mig",
+	"fighter", "bomber", "airliner", "bombardier", "concorde", "douglas", "a320", "a380", "piper", "pilatus", "лайнер",
+}
 for _, m in ipairs(workspace:GetChildren()) do
 	if m:IsA("Model") and not SKIP[m.Name] and not m:FindFirstChildOfClass("Humanoid") then
 		local n = string.lower(m.Name)
-		local looks = m:FindFirstChildWhichIsA("VehicleSeat", true) ~= nil
+		-- самолёт: есть кресло (пилота или пассажира) или «самолётное» слово в названии
+		local looks = m:FindFirstChildWhichIsA("VehicleSeat", true) ~= nil or m:FindFirstChildWhichIsA("Seat", true) ~= nil
 		for _, w in ipairs(PLANE_WORDS) do
 			if string.find(n, w, 1, true) then looks = true end
 		end
@@ -509,6 +524,18 @@ do
 				if m:IsA("Model") then m.Parent = hangar end
 			end
 			f:Destroy()
+		end
+	end
+	-- одинаковые названия мешают выбору — делаем их уникальными
+	local usedNames = {}
+	for _, m in ipairs(hangar:GetChildren()) do
+		if m:IsA("Model") then
+			local base, n = m.Name, 1
+			while usedNames[m.Name] do
+				n += 1
+				m.Name = base .. " " .. n
+			end
+			usedNames[m.Name] = true
 		end
 	end
 	for _, m in ipairs(hangar:GetChildren()) do
