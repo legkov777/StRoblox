@@ -19,6 +19,9 @@ local CFG = {
 	CIV_RESPAWN = 5,
 	BOARD_SEARCH = 700,        -- с какого расстояния пассажир видит самолёт
 	ZOMBIE_AREA = { x = { 450, 1100 }, z = { -900, 900 } },   -- поля к востоку от аэропорта
+	HORDE_RUN = 17,            -- орда бежит к самолёту быстрее обычных зомби
+	MAX_ZOMBIES = 70,          -- больше зомби одновременно не бывает
+	HORDE_LIFETIME = 150,      -- зомби из орды исчезают через N секунд
 	CIV_AREA = { x = { -250, -216 }, z = { -120, 960 } },     -- посадочный перрон у рулёжки (где стоят самолёты)
 }
 
@@ -92,7 +95,7 @@ end
 -- несколько вариантов пассажиров (разная одежда)
 local civTemplates = {}
 local SKINS = { Color3.fromRGB(255, 220, 190), Color3.fromRGB(235, 190, 150), Color3.fromRGB(180, 130, 95), Color3.fromRGB(120, 85, 60) }
-local SHIRTS = { Color3.fromRGB(40, 90, 180), Color3.fromRGB(200, 50, 50), Color3.fromRGB(240, 240, 240), Color3.fromRGB(60, 140, 80), Color3.fromRGB(240, 180, 40), Color3.fromRGB(120, 60, 160) }
+local SHIRTS = { Color3.fromRGB(40, 90, 180), Color3.fromRGB(200, 50, 50), Color3.fromRGB(240, 240, 240), Color3.fromRGB(235, 120, 40), Color3.fromRGB(240, 180, 40), Color3.fromRGB(120, 60, 160) }
 local PANTS = { Color3.fromRGB(40, 45, 60), Color3.fromRGB(90, 70, 50), Color3.fromRGB(30, 30, 35), Color3.fromRGB(70, 90, 130) }
 for i = 1, 6 do
 	local c = rig(SKINS[(i - 1) % #SKINS + 1], SHIRTS[i], PANTS[(i - 1) % #PANTS + 1], "Пассажир")
@@ -173,13 +176,41 @@ local function nearestPrey(pos)
 	return best, bestD
 end
 
-local function zombieBrain(m, hum, root)
+local planeCache, planeCacheT = {}, 0
+local function groundPlanes()
+	if os.clock() - planeCacheT > 0.5 and api then
+		planeCacheT = os.clock()
+		local ok, list = pcall(function() return api:Invoke("groundPlanes") end)
+		planeCache = (ok and list) or {}
+	end
+	return planeCache
+end
+
+local function nearestPlane(pos, maxD)
+	local best, bd = nil, maxD
+	for _, pl in ipairs(groundPlanes()) do
+		local d = Vector3.new(pl.pos.X - pos.X, 0, pl.pos.Z - pos.Z).Magnitude
+		if d < bd then best, bd = pl, d end
+	end
+	return best, bd
+end
+
+local function zombieBrain(m, hum, root, rusher)
 	local lastHit, nextWander, stuckT = 0, 0, 0
 	local lastPos = root.Position
 	while m.Parent and hum.Health > 0 do
 		local now = os.clock()
 		local prey, dist = nearestPrey(root.Position)
-		if prey then
+		-- орда сначала бежит к самолёту; обычные зомби идут к нему, если рядом нет людей
+		local plane, pd = nearestPlane(root.Position, rusher and 1500 or 450)
+		if plane and (rusher or not prey) and not (prey and dist < 12) then
+			hum.WalkSpeed = rusher and CFG.HORDE_RUN or CFG.ZOMBIE_RUN
+			hum:MoveTo(Vector3.new(plane.pos.X, root.Position.Y, plane.pos.Z))
+			if pd < plane.radius + 10 and math.random() < 0.3 then
+				hum.Jump = true -- колотят по самолёту
+			end
+			prey = nil
+		elseif prey then
 			hum.WalkSpeed = CFG.ZOMBIE_RUN
 			hum:MoveTo(prey.root.Position)
 			if dist < 5 and now - lastHit > CFG.HIT_COOLDOWN then
@@ -215,9 +246,9 @@ local function zombieBrain(m, hum, root)
 end
 
 local zombieCount = 0
-spawnZombie = function(atPos, infected)
+spawnZombie = function(atPos, infected, rusher)
 	local templates = store:GetChildren()
-	if #templates == 0 then return end
+	if #templates == 0 or #zombiesLive:GetChildren() >= CFG.MAX_ZOMBIES then return end
 	local m = templates[math.random(#templates)]:Clone()
 	local hum = m:FindFirstChildOfClass("Humanoid")
 	local root = rootOf(m)
@@ -243,7 +274,26 @@ spawnZombie = function(atPos, infected)
 			end)
 		end
 	end)
-	task.spawn(zombieBrain, m, hum, root)
+	if rusher then
+		task.delay(CFG.HORDE_LIFETIME, function()
+			if m.Parent and hum.Health > 0 then m:Destroy() end
+		end)
+	end
+	task.spawn(zombieBrain, m, hum, root, rusher)
+end
+
+-- ОРДА: толпа зомби появляется кольцом вокруг самолёта и бежит к нему
+local hordeEvent = ServerStorage:WaitForChild("FlyCrashHorde", 30)
+if hordeEvent then
+	hordeEvent.Event:Connect(function(pos, count)
+		for i = 1, count do
+			local ang = math.random() * math.pi * 2
+			local r = math.random(160, 240)
+			local p = groundPos(pos.X + math.cos(ang) * r, pos.Z + math.sin(ang) * r)
+			task.spawn(spawnZombie, p, true, true)
+			if i % 4 == 0 then task.wait(0.1) end
+		end
+	end)
 end
 
 ---------------------------------------------------------------- ПАССАЖИРЫ

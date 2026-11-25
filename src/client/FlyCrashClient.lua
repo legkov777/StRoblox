@@ -144,6 +144,10 @@ label(mission, { Size = UDim2.new(1, 0, 0, 14), TextSize = 11, Font = Enum.Font.
 local paxL = label(mission, { Size = UDim2.new(1, 0, 0, 30), TextSize = 26, Font = Enum.Font.GothamBlack, Text = "0 / 0", LayoutOrder = 2 })
 local goalL = label(mission, { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, TextSize = 14, TextWrapped = true, Font = Enum.Font.GothamMedium, LayoutOrder = 3 })
 local distL = label(mission, { Size = UDim2.new(1, 0, 0, 16), TextSize = 13, Font = Enum.Font.GothamBold, TextColor3 = C.yellow, LayoutOrder = 4 })
+local dangerL = label(mission, {
+	Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, TextSize = 17, TextWrapped = true,
+	Font = Enum.Font.GothamBlack, TextColor3 = C.red, LayoutOrder = 5, Text = "",
+})
 
 -- указатель цели: с пассажирами — к УБЕЖИЩУ, без пассажиров — к ПАССАЖИРАМ в аэропорт
 task.spawn(function()
@@ -1204,9 +1208,22 @@ RunService.RenderStepped:Connect(function(dt)
 		elseif pax == 0 then
 			goalL.Text = (st == "НА ЗЕМЛЕ") and "Стой на месте — пассажиры бегут к самолёту. Не подпускай зомби!" or "Вернись в аэропорт и сядь — там ждут пассажиры."
 		elseif pax < cap and st == "НА ЗЕМЛЕ" then
-			goalL.Text = "Пассажиры садятся. Ждать ещё или взлетать? Зомби рядом!"
+			goalL.Text = "Пассажиры садятся. Ждать ещё или взлетать, пока не пришла орда?"
 		else
 			goalL.Text = "Лети на остров-убежище на востоке (зелёный маяк) и сядь там."
+		end
+		-- опасность: орда и зомби у самолёта
+		local zn = pl:GetAttribute("ZombiesNear") or 0
+		local hin = pl:GetAttribute("HordeIn") or -1
+		local blink = (math.floor(os.clock() * 3) % 2 == 0)
+		if zn > 0 and st == "НА ЗЕМЛЕ" then
+			dangerL.Text = ("ЗОМБИ У САМОЛЁТА: %d — ВЗЛЕТАЙ!"):format(zn)
+			dangerL.TextColor3 = blink and C.red or C.white
+		elseif hin >= 0 then
+			dangerL.Text = ("ОРДА ЧЕРЕЗ %d С"):format(hin)
+			dangerL.TextColor3 = (hin <= 10 and blink) and C.red or C.yellow
+		else
+			dangerL.Text = ""
 		end
 		if pax > 0 then
 			distL.Text = ("До убежища: %.1f км"):format(km)
@@ -1396,7 +1413,7 @@ local function showSplash()
 		local t3 = label(splash, {
 			Size = UDim2.new(1, -80, 0, 30), Position = UDim2.new(0, 66, 0.22, 196), Font = Enum.Font.GothamBold,
 			TextSize = 22, TextColor3 = Color3.fromRGB(230, 230, 235), ZIndex = 101,
-			Text = "Город захватили зомби. Забери выживших и увези их на остров.",
+			Text = "THE LAST FLIGHT  ·  Город захватили зомби. Забери выживших и увези их на остров, пока не пришла орда.",
 		})
 		parts = { t1, t2, t3 }
 	end

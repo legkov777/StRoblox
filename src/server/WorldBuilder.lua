@@ -74,8 +74,9 @@ Terrain:FillBlock(CFrame.new(2960, -4, 0), Vector3.new(320, 8, 12288), Enum.Mate
 Terrain:FillBlock(CFrame.new(3260, -10, 0), Vector3.new(400, 4, 12288), Enum.Material.Sand)
 Terrain:FillBlock(CFrame.new(4200, -5, 0), Vector3.new(2400, 14, 12288), Enum.Material.Water)
 -- остров-убежище с аэродромом (верх ≈ y 3)
-Terrain:FillBlock(CFrame.new(4900, -4, 0), Vector3.new(760, 14, 1900), Enum.Material.Sand)
-Terrain:FillBlock(CFrame.new(4900, -3, 0), Vector3.new(680, 12, 1800), Enum.Material.Grass)
+-- верх острова ровно на y = 4 (сетка ландшафта — 4 studs), полоса лежит поверх
+Terrain:FillBlock(CFrame.new(4900, -4, 0), Vector3.new(760, 16, 1900), Enum.Material.Sand)
+Terrain:FillBlock(CFrame.new(4900, -2, 0), Vector3.new(680, 12, 1800), Enum.Material.Grass)
 Terrain:FillBall(Vector3.new(4900, -40, 950), 120, Enum.Material.Sand)
 Terrain:FillBall(Vector3.new(4900, -40, -950), 120, Enum.Material.Sand)
 

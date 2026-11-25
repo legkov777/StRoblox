@@ -27,6 +27,11 @@ local CFG = {
 	LANDING_REWARD = 20,    -- посадка без пассажиров / не в убежище
 	FARE = 25,              -- платит каждый спасённый пассажир
 	SAFE_RADIUS = 900,      -- радиус убежища вокруг детали SafeZone
+	HORDE_FIRST = 40,       -- через сколько секунд стоянки приходит первая орда
+	HORDE_EVERY = 30,       -- потом — каждые N секунд, пока стоишь
+	HORDE_SIZE = 12,        -- зомби в орде
+	OVERRUN_COUNT = 6,      -- столько зомби у самолёта — и он захвачен...
+	OVERRUN_TIME = 4,       -- ...если продержатся рядом столько секунд
 	CHAOS_BONUS = 50,
 	PASSENGER_REWARD = 25,
 	ZOMBIE_REWARD = 10,
@@ -1252,6 +1257,8 @@ spawnFlight = function(owner, planeName, livery)
 	f.hasGear = #f.gearParts > 0
 	f.gearDown = true
 	f.gearJamUntil = 0
+	f.hordeAt = os.clock() + CFG.HORDE_FIRST
+	f.overrunT = 0
 
 	f.engineStarted = false
 	f.engineSound = playSound("EngineLoop", f.core, true)
@@ -1648,6 +1655,8 @@ local function stepFlight(f, dt, now)
 				return
 			end
 			st.onGround = true
+			f.hordeAt = os.clock() + CFG.HORDE_FIRST
+			f.overrunT = 0
 			playSound("Landing", f.core)
 			msg(f, "Касание! Сбрось газ (S) и остановись.")
 		end
@@ -1770,6 +1779,15 @@ api.OnInvoke = function(action, id)
 			end
 		end
 		return list
+	elseif action == "groundPlanes" then
+		local list = {}
+		for _, f in pairs(flights) do
+			local st = f.state
+			if not st.crashed and st.onGround and f.core.Parent then
+				table.insert(list, { pos = f.core.Position, radius = f.length * 0.5 })
+			end
+		end
+		return list
 	elseif action == "board" then
 		for owner, f in pairs(flights) do
 			if owner.UserId == id and f.passengers < f.capacity and not f.state.crashed and f.state.onGround then
@@ -1792,7 +1810,16 @@ api.OnInvoke = function(action, id)
 	return nil
 end
 
--- зомби у стоящего самолёта съедают пассажиров
+local hordeEvent = Instance.new("BindableEvent")
+hordeEvent.Name = "FlyCrashHorde"
+hordeEvent.Parent = ServerStorage
+
+local function atSafeZone(pos)
+	local safe = workspace:FindFirstChild("SafeZone", true)
+	return safe and Vector3.new(pos.X - safe.Position.X, 0, pos.Z - safe.Position.Z).Magnitude < CFG.SAFE_RADIUS
+end
+
+-- зомби у стоящего самолёта съедают пассажиров, а толпой — захватывают самолёт
 local function zombiesAttackPlanes()
 	local zf = workspace:FindFirstChild("ZombiesLive")
 	if not zf then return end
@@ -1809,6 +1836,7 @@ local function zombiesAttackPlanes()
 					eaten += 1
 				end
 			end
+			f.zombiesNear = eaten
 			if eaten > 0 then
 				eaten = math.min(eaten, f.passengers)
 				f.passengers -= eaten
@@ -1858,6 +1886,52 @@ task.spawn(function()
 end)
 
 ---------------------------------------------------------------- ГЛАВНЫЙ ЦИКЛ
+-- орды и захват самолёта
+local function hordesAndOverrun()
+	local zf = workspace:FindFirstChild("ZombiesLive")
+	local now = os.clock()
+	for _, f in pairs(flights) do
+		local st = f.state
+		if not st.crashed and f.core.Parent then
+			-- сколько зомби у самолёта (даже если пассажиров нет)
+			local near = 0
+			if zf then
+				local c = f.core.Position
+				local r = f.length * 0.5 + 8
+				for _, z in ipairs(zf:GetChildren()) do
+					local root = z:FindFirstChild("HumanoidRootPart") or z:FindFirstChild("Torso")
+					local h = z:FindFirstChildOfClass("Humanoid")
+					if root and h and h.Health > 0 and Vector3.new(root.Position.X - c.X, 0, root.Position.Z - c.Z).Magnitude < r then
+						near += 1
+					end
+				end
+			end
+			f.plane:SetAttribute("ZombiesNear", near)
+			if st.onGround and st.speed < 15 and not atSafeZone(st.pos) then
+				if near >= CFG.OVERRUN_COUNT then
+					f.overrunT += 1
+					msg(f, ("ЗОМБИ ЛОМЯТСЯ В САМОЛЁТ! Взлетай! (%d/%d)"):format(f.overrunT, CFG.OVERRUN_TIME))
+					if f.overrunT >= CFG.OVERRUN_TIME then
+						crash(f, "Зомби захватили самолёт")
+					end
+				else
+					f.overrunT = 0
+				end
+				if now >= (f.hordeAt or math.huge) then
+					f.hordeAt = now + CFG.HORDE_EVERY
+					hordeEvent:Fire(f.core.Position, CFG.HORDE_SIZE)
+					playSound("Alarm", f.core)
+					msg(f, "ОРДА ИДЁТ! Толпа зомби бежит к самолёту — взлетай, пока не поздно!")
+				end
+				f.plane:SetAttribute("HordeIn", math.max(0, math.ceil((f.hordeAt or now) - now)))
+			else
+				f.overrunT = 0
+				f.plane:SetAttribute("HordeIn", -1)
+			end
+		end
+	end
+end
+
 local eatT = 0
 RunService.Heartbeat:Connect(function(dt)
 	dt = math.min(dt, 0.1)
@@ -1867,6 +1941,7 @@ RunService.Heartbeat:Connect(function(dt)
 	if eatT >= 1 then
 		eatT = 0
 		zombiesAttackPlanes()
+		hordesAndOverrun()
 	end
 	for owner, f in pairs(flights) do
 		if not owner.Parent then
