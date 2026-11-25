@@ -333,7 +333,7 @@ for _, e in ipairs({ { "Пожар", "fire" }, { "Падение", "fall" }, { "
 	pbutton(g2, e[1], C.accent, function() ChaosEvent:FireServer(e[2]) end)
 end
 local g3 = section("03  СВЯЗЬ И ЗВУКИ")
-for _, e in ipairs({ { "Запуск двиг.", "EngineStart" }, { "Пилоты", "Pilots" }, { "Стюардесса", "Stewardess" }, { "Тревога", "Alarm" } }) do
+for _, e in ipairs({ { "Запуск двиг.", "EngineStart" }, { "Пилоты", "Pilots" }, { "Стюардесса", "Stewardess" }, { "Тревога", "Alarm" }, { "Диспетчер", "Tower" }, { "PULL UP", "PullUp" } }) do
 	pbutton(g3, e[1], C.blue, function() ChaosEvent:FireServer("sound", e[2]) end)
 end
 

@@ -856,6 +856,7 @@ end
 local function detachEngine(f, i)
 	if f.engineDead[i] then return false end
 	f.engineDead[i] = true
+	playSound("EngineFail", f.core)
 	local slot = f.plane:GetAttribute("FCSlot" .. i)
 	local effectPos = slot and f.plane.PrimaryPart.CFrame:PointToWorldSpace(slot) or f.core.Position
 	local pieces = {}
@@ -1069,6 +1070,8 @@ CHAOS.drone = function(f)
 		end
 		m.PrimaryPart = body
 	end
+	local dp = m:IsA("BasePart") and m or m:FindFirstChildWhichIsA("BasePart", true)
+	if dp then playSound("Drone", dp, true) end
 	addHazard(f, m, pos, 60, 18, 12, function(ff)
 		boom(ff.core.Position, 12)
 		if not detachRandomEngine(ff) then msg(ff, "Дрон врезался в корпус!") end
@@ -1362,7 +1365,7 @@ ChaosEvent.OnServerEvent:Connect(function(p, kind, arg)
 	end
 
 	if kind == "sound" then
-		local allowed = { EngineStart = true, Pilots = true, Stewardess = true, Alarm = true }
+		local allowed = { EngineStart = true, Pilots = true, Stewardess = true, Alarm = true, Tower = true, PullUp = true }
 		if typeof(arg) == "string" and allowed[arg] then
 			for _, f in ipairs(targets) do playSound(arg, f.core) end
 		end
@@ -1469,6 +1472,32 @@ local function stepFlight(f, dt, now)
 		f.engineSound.PlaybackSpeed = 0.7 + st.throttle * 0.5 + (st.speed / perf.max) * 0.3
 	end
 
+	-- автоматические звуки по ходу полёта
+	if st.onGround then
+		if st.throttle > 0.05 and st.speed < 3 and f.passengers > 0 and not f.announced then
+			-- готовимся к взлёту — объявление стюардессы
+			f.announced = true
+			playSound("Stewardess", f.core)
+		end
+		if not f.rollSound and st.throttle > 0.5 and st.speed > perf.takeoff * 0.25 then
+			f.rollSound = true
+			playSound("Takeoff", f.core)
+		end
+	else
+		f.rollSound = false
+		local altM = (st.pos.Y - (st.groundY or 0)) * Shared.ALT
+		local vsM = st.vel.Y * Shared.ALT
+		-- «PULL UP»: низко и быстро снижаешься
+		if altM < 80 and vsM < -12 and now - (f.lastPullUp or 0) > 3 then
+			f.lastPullUp = now
+			playSound("PullUp", f.core)
+		end
+		-- переговоры пилотов в спокойном полёте
+		if st.airborneTime > 20 and now - (f.lastChatter or 0) > 75 then
+			f.lastChatter = now
+			playSound("Pilots", f.core)
+		end
+	end
 	local target = st.throttle * perf.max * (alive / 4) * ((f.hasGear and not f.gearDown) and 1.12 or 1)
 	local diff = target - st.speed
 	local rate = (diff > 0) and perf.accel or perf.accel * 0.6
@@ -1580,7 +1609,6 @@ local function stepFlight(f, dt, now)
 	elseif st.onGround and newPos.Y > gY + 2 then
 		if st.speed >= perf.takeoff * 0.9 then
 			st.onGround = false
-			playSound("Takeoff", f.core)
 			msg(f, "Взлёт! Набирай высоту.")
 		else
 			newPos = Vector3.new(newPos.X, math.max(gY, newPos.Y - 40 * dt), newPos.Z)
@@ -1616,6 +1644,7 @@ local function stepFlight(f, dt, now)
 			delivered = f.passengers
 			bonus = delivered * CFG.FARE + st.chaosCount * CFG.CHAOS_BONUS
 			f.passengers = 0
+			f.announced = false
 			f.plane:SetAttribute("Passengers", 0)
 			local r = pilot and pilot:FindFirstChild("leaderstats") and pilot.leaderstats:FindFirstChild("Спасено")
 			if r then r.Value += delivered end
@@ -1699,6 +1728,10 @@ api.OnInvoke = function(action, id)
 			if owner.UserId == id and f.passengers < f.capacity and not f.state.crashed and f.state.onGround then
 				f.passengers += 1
 				f.plane:SetAttribute("Passengers", f.passengers)
+				if f.passengers >= f.capacity and not f.announced then
+					f.announced = true
+					playSound("Stewardess", f.core)
+				end
 				if f.passengers >= f.capacity then
 					msg(f, ("Салон полон: %d / %d! Взлетай и лети на остров-убежище (восток)."):format(f.passengers, f.capacity))
 				else
@@ -1738,6 +1771,19 @@ local function zombiesAttackPlanes()
 		end
 	end
 end
+
+-- фон в аэропорту: переговоры диспетчеров из башни
+task.spawn(function()
+	local ap = workspace:FindFirstChild("Airport")
+	local tower = ap and ap:FindFirstChild("Tower")
+	if tower and tower:IsA("BasePart") then
+		local s = playSound("Tower", tower, true)
+		if s then
+			s.Volume = 0.5
+			s.RollOffMaxDistance = 600
+		end
+	end
+end)
 
 ---------------------------------------------------------------- ИГРОКИ
 Players.PlayerAdded:Connect(loadPlayer)
