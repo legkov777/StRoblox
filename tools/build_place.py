@@ -64,7 +64,7 @@ world.append(container("Folder", "Hangar", fleet))
 # ================= АЭРОПОРТ
 RW_HALF_W, RW_HALF_L = 60, 1200
 rw = [part("RunwaySeg", (120, 0.4, 1200), (0, 0.2, z), ASPH) for z in (-600, 600)]
-rw += [part("SafeRunwaySeg", (100, 1.4, 700), (4900, 3.7, z), ASPH) for z in (-350, 350)]
+rw += [part("SafeRunwaySeg", (100, 5.4, 700), (4900, 1.7, z), ASPH) for z in (-350, 350)]
 world.append(container("Model", "Runway", rw))
 
 marks = []
@@ -441,7 +441,7 @@ for k in range(6):
     safe.append(part("RedCross", (25, 0.3, 4), (SX + 120, SY + 10.2, tz), (220, 40, 40), collide=False))
 for k in range(10):
     safe.append(part("Sandbags", (14, 4, 4), (SX + 160, SY + 2, -360 + k * 80), (190, 170, 120), mat="sand"))
-safe.append(part("Helipad", (40, 1.3, 40), (SX + 200, SY - 0.35, 420), (60, 62, 66)))
+safe.append(part("Helipad", (40, 5.3, 40), (SX + 200, SY - 2.35, 420), (60, 62, 66)))
 safe.append(part("HelipadH", (4, 0.05, 20), (SX + 194, SY + 0.33, 420), WHITE, collide=False))
 safe.append(part("HelipadH", (4, 0.05, 20), (SX + 206, SY + 0.33, 420), WHITE, collide=False))
 safe.append(part("HelipadH", (12, 0.05, 3), (SX + 200, SY + 0.33, 420), WHITE, collide=False))
@@ -461,7 +461,7 @@ safe.append(part("SafeHangar", (70, 28, 70), (SX + 225, SY + 14, 260), (205, 210
 safe.append(part("SafeHangarDoor", (1, 22, 60), (SX + 189.6, SY + 11, 260), (70, 85, 100), mat="metal"))
 for k in range(3):
     safe.append(part("FuelTank", (14, 14, 14), (SX + 260, SY + 7, -330 + k * 22), (240, 240, 242), mat="metal", shape=0))
-safe.append(part("SafeApron", (80, 1.3, 500), (SX + 110, SY - 0.35, -60), (62, 65, 70)))
+safe.append(part("SafeApron", (80, 5.3, 500), (SX + 110, SY - 2.35, -60), (62, 65, 70)))
 for k in range(5):
     safe.append(part("ParkedTruck", (6, 5, 12), (SX + 150, SY + 2.5, -280 + k * 30), (90, 110, 70)))
 safe.append(part("SafeSign", (1, 14, 60), (SX + 179, SY + 26, -150), (60, 200, 110), mat="neon"))

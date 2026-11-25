@@ -1548,6 +1548,116 @@ local function showSplash()
 	task.delay(0.6, function() splash:Destroy() end)
 end
 
+---------------------------------------------------------------- ВОРОТА ГЛИССАДЫ
+-- Как ILS в настоящих самолётах: перед полосой в воздухе висят зелёные рамки по линии
+-- снижения (4°). Лети сквозь них — и попадёшь точно в начало полосы.
+do
+	local GLIDE = math.rad(4)
+	local GATES, STEP, FIRST = 10, 200, 120
+	local folder = Instance.new("Folder")
+	folder.Name = "FlyCrashGlide"
+	folder.Parent = camera
+	local function bar(sz)
+		local p = Instance.new("Part")
+		p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
+		p.Material = Enum.Material.Neon
+		p.Size = sz
+		p.Transparency = 1
+		p.Parent = folder
+		return p
+	end
+	local gates = {}
+	for i = 1, GATES do
+		local w, h, t = 64, 30, 1.6
+		gates[i] = {
+			bar(Vector3.new(w, t, t)), bar(Vector3.new(w, t, t)),
+			bar(Vector3.new(t, h, t)), bar(Vector3.new(t, h, t)),
+			w = w, h = h,
+		}
+	end
+	local function hideAll()
+		for _, g in ipairs(gates) do
+			for k = 1, 4 do g[k].Transparency = 1 end
+		end
+	end
+	-- полосы: сегменты в Runway, сгруппированные по оси (x центра)
+	local function runways()
+		local groups = {}
+		for _, p in ipairs(runwaySegs) do
+			if p.Parent then
+				local k = math.floor(p.Position.X / 40 + 0.5)
+				local g = groups[k]
+				local cf = p.CFrame
+				local lo = cf:PointToWorldSpace(Vector3.new(0, p.Size.Y / 2, -p.Size.Z / 2))
+				local hi = cf:PointToWorldSpace(Vector3.new(0, p.Size.Y / 2, p.Size.Z / 2))
+				if not g then
+					g = { a = lo, b = hi, axis = -cf.LookVector }
+					groups[k] = g
+				else
+					local ax = g.axis
+					for _, v in ipairs({ lo, hi }) do
+						if (v - g.a):Dot(ax) < 0 then g.a = v end
+						if (v - g.b):Dot(ax) > 0 then g.b = v end
+					end
+				end
+			end
+		end
+		return groups
+	end
+	task.spawn(function()
+		while true do
+			task.wait(0.1)
+			local ok = pcall(function()
+				local char = player.Character
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				local seat = hum and hum.SeatPart
+				local pl = seat and myPlane(seat)
+				local st = pl and pl:GetAttribute("State")
+				if not pl or st == "НА ЗЕМЛЕ" or st == "КРУШЕНИЕ" or (pl:GetAttribute("Altitude") or 0) < 3 then
+					hideAll()
+					return
+				end
+				local pos, look = pl:GetPivot().Position, pl:GetPivot().LookVector
+				local flat = Vector3.new(look.X, 0, look.Z)
+				flat = flat.Magnitude > 0.01 and flat.Unit or Vector3.zAxis
+				-- выбираем порог полосы, к которому летим
+				local best, bestD
+				for _, g in pairs(runways()) do
+					for _, e in ipairs({ { g.a, g.axis }, { g.b, -g.axis } }) do
+						local thr, dir = e[1], e[2] -- dir: вдоль полосы от порога внутрь
+						local out = Vector3.new(-dir.X, 0, -dir.Z).Unit
+						local rel = Vector3.new(pos.X - thr.X, 0, pos.Z - thr.Z)
+						local along = rel:Dot(out)
+						local side = math.abs(rel:Dot(Vector3.new(-out.Z, 0, out.X)))
+						if along > 40 and along < 4200 and side < along * 0.6 + 200
+							and flat:Dot(-out) > 0.25 then
+							if not bestD or along < bestD then best, bestD = { thr = thr, out = out }, along end
+						end
+					end
+				end
+				if not best then hideAll() return end
+				local right = Vector3.new(-best.out.Z, 0, best.out.X)
+				for i, g in ipairs(gates) do
+					local d = FIRST + (i - 1) * STEP
+					local c = best.thr + best.out * d + Vector3.new(0, 8 + d * math.tan(GLIDE) + g.h / 2, 0)
+					local face = CFrame.lookAt(c, c - best.out)
+					local passed = (pos - best.thr):Dot(best.out) < d - 10
+					local tr = passed and 1 or (bestD - d > 2600 and 1 or 0.25)
+					local col = (i % 2 == 0) and Color3.fromRGB(80, 255, 140) or Color3.fromRGB(255, 220, 80)
+					g[1].CFrame = face * CFrame.new(0, g.h / 2, 0)
+					g[2].CFrame = face * CFrame.new(0, -g.h / 2, 0)
+					g[3].CFrame = face * CFrame.new(-g.w / 2, 0, 0)
+					g[4].CFrame = face * CFrame.new(g.w / 2, 0, 0)
+					for k = 1, 4 do g[k].Transparency = tr; g[k].Color = col end
+				end
+			end)
+			if not ok then hideAll() end
+		end
+	end)
+end
+
+
 -- при входе: заставка, затем ангар
 showSplash()
 openHangar()
+
