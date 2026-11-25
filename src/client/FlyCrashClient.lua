@@ -1382,6 +1382,97 @@ RunService.Heartbeat:Connect(function()
 	end
 end)
 
+---------------------------------------------------------------- ПРОПЕЛЛЕРЫ (крутим у себя, каждый кадр)
+local propCache = {}
+local propSeen = {}
+local function buildProps(pl)
+	local root = pl.PrimaryPart or pl:FindFirstChild("Root")
+	if not root then return nil end
+	local groups, order = {}, {}
+	for _, d in ipairs(pl:GetDescendants()) do
+		if d:IsA("BasePart") and d:GetAttribute("FCProp") then
+			local slot = d:GetAttribute("FCEngine")
+			local key = slot and ("s" .. slot) or d
+			if not groups[key] then
+				groups[key] = { parts = {}, angle = math.random() * 6 }
+				table.insert(order, groups[key])
+			end
+			table.insert(groups[key].parts, { p = d, base = root.CFrame:ToObjectSpace(d.CFrame) })
+		end
+	end
+	for _, g in ipairs(order) do
+		local s = Vector3.zero
+		for _, e in ipairs(g.parts) do s += e.base.Position end
+		g.hub = s / #g.parts
+		local r = 1
+		for _, e in ipairs(g.parts) do
+			local off = e.base.Position - g.hub
+			r = math.max(r, Vector3.new(off.X, off.Y, 0).Magnitude + e.p.Size.Magnitude * 0.5)
+		end
+		-- полупрозрачный диск — «размытие» винта на больших оборотах (видно только тебе)
+		local disc = Instance.new("Part")
+		disc.Name = "PropBlur"
+		disc.Shape = Enum.PartType.Cylinder
+		disc.Size = Vector3.new(0.15, r * 2, r * 2)
+		disc.Anchored = true
+		disc.CanCollide = false
+		disc.CanQuery = false
+		disc.CanTouch = false
+		disc.CastShadow = false
+		disc.Material = Enum.Material.SmoothPlastic
+		disc.Color = Color3.fromRGB(70, 72, 78)
+		disc.Transparency = 1
+		disc.Parent = camera
+		g.disc = disc
+	end
+	return { root = root, groups = order }
+end
+
+RunService.RenderStepped:Connect(function(dt)
+	for pl, cache in pairs(propCache) do
+		if not pl.Parent then
+			for _, g in ipairs(cache.groups) do g.disc:Destroy() end
+			propCache[pl] = nil
+		end
+	end
+	for _, pl in ipairs(flightsFolder:GetChildren()) do
+		local cache = propCache[pl]
+		if cache == nil then
+			-- ждём секунду, пока модель целиком дойдёт до игрока
+			propSeen[pl] = propSeen[pl] or os.clock()
+			if os.clock() - propSeen[pl] > 1 then
+				cache = buildProps(pl) or false
+				propCache[pl] = cache
+				propSeen[pl] = nil
+			end
+		end
+		if cache and cache.root.Parent then
+			local on = pl:GetAttribute("EngineOn") == true and pl:GetAttribute("State") ~= "КРУШЕНИЕ"
+			local thr = (pl:GetAttribute("Throttle") or 0) / 100
+			local spin = on and (10 + thr * 50) or 0
+			local rcf = cache.root.CFrame
+			for _, g in ipairs(cache.groups) do
+				if not on then
+					-- двигатель выключен или крушение: не трогаем детали (обломки летят сами)
+					g.disc.Transparency = 1
+					continue
+				end
+				local alive = false
+				g.angle = (g.angle + spin * dt) % (math.pi * 2)
+				local turn = CFrame.new(g.hub) * CFrame.Angles(0, 0, g.angle) * CFrame.new(-g.hub)
+				for _, e in ipairs(g.parts) do
+					if e.p:IsDescendantOf(pl) then
+						alive = true
+						e.p.CFrame = rcf * turn * e.base
+					end
+				end
+				g.disc.Transparency = (alive and spin > 25) and 0.72 or 1
+				g.disc.CFrame = rcf * CFrame.new(g.hub) * CFrame.Angles(0, math.rad(90), 0)
+			end
+		end
+	end
+end)
+
 ---------------------------------------------------------------- ЗАСТАВКА «ПОСЛЕДНИЙ РЕЙС»
 -- Картинку обложки загрузи в Roblox и впиши её ID в ReplicatedStorage > FlyCrash > TitleImage (Value),
 -- например rbxassetid://1234567890. Пока пусто — показывается текстовая заставка.

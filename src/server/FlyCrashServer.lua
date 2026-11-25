@@ -943,6 +943,8 @@ local function crash(f, reason)
 	ex.DestroyJointRadiusPercent = 0
 	ex.Parent = workspace
 
+	f.plane:SetAttribute("EngineOn", false)
+	f.plane:SetAttribute("State", "КРУШЕНИЕ")
 	local riders = flightPlayers(f)
 	for _, s in ipairs(f.seats) do
 		local w = s:FindFirstChild("SeatWeld")
@@ -1787,22 +1789,8 @@ local function stepFlight(f, dt, now)
 
 	st.pos = newPos
 	f.plane:PivotTo(CFrame.new(newPos) * rot * CFrame.Angles(0, 0, st.roll))
-	-- крутим пропеллеры: быстрее от газа, у оторванного двигателя — стоп
-	if #f.props > 0 then
-		local rcf = f.plane.PrimaryPart.CFrame
-		local spin = f.engineStarted and (8 + st.throttle * 40) or 0
-		for _, g in ipairs(f.props) do
-			if spin > 0 and not (g.slot and f.engineDead[g.slot]) then
-				g.angle = (g.angle + spin * dt) % (math.pi * 2)
-				local turn = CFrame.new(g.hub) * CFrame.Angles(0, 0, g.angle) * CFrame.new(-g.hub)
-				for _, e in ipairs(g.parts) do
-					if e.p:IsDescendantOf(f.plane) then
-						e.p.CFrame = rcf * turn * e.base
-					end
-				end
-			end
-		end
-	end
+	-- пропеллеры крутит клиент (плавно, каждый кадр); сервер только сообщает, что двигатель запущен
+	f.plane:SetAttribute("EngineOn", f.engineStarted == true)
 
 	if st.fireStart and now - st.fireStart > CFG.FIRE_TIME then
 		crash(f, "Пожар уничтожил самолёт")
