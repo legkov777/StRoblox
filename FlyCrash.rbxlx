@@ -2727,19 +2727,41 @@ hills(500, -4600, 5)
 hills(-500, 4700, 5)
 
 
--- полоса/перрон/вертолётная площадка острова: убираем траву над ними
--- (ландшафт сглаживается и вылезает поверх деталей), режем воздух от y=0 вверх
+-- ПОЛОСЫ ПОВЕРХ ТРАВЫ. Сглаженный ландшафт «вспухает» до 2 studs и налезает на тонкие
+-- плиты (полосы, рулёжки, перроны). Поэтому под каждой плоской плитой у земли вырезаем
+-- ландшафт на 4 studs вниз, а саму плиту наращиваем вниз, чтобы она заполнила выемку.
 do
 	local AIR = Enum.Material.Air
-	for _, b in ipairs({
-		{ 4900, 0, 100, 1400 },   -- полоса
-		{ 5010, -60, 80, 500 },   -- перрон
-		{ 5100, 420, 40, 40 },    -- вертолётная площадка
-	}) do
-		-- срезаем ландшафт до y = 0: плиты толщиной ~5 studs заполняют эту выемку,
-		-- и сглаженная трава (она «вспухает» до 2 studs) больше не налезает сверху
-		Terrain:FillBlock(CFrame.new(b[1], 20, b[2]), Vector3.new(b[3], 40, b[4]), AIR)
+	local SKIP = { Flights = true, Hangar = true, HangarBuilding = true, Camera = true }
+	local function skipped(p)
+		local a = p.Parent
+		while a and a ~= workspace do
+			if SKIP[a.Name] or a:FindFirstChildOfClass("Humanoid") then return true end
+			a = a.Parent
+		end
+		return false
 	end
+	local n = 0
+	for _, p in ipairs(workspace:GetDescendants()) do
+		if p:IsA("BasePart") and p.Anchored and not p:IsA("Terrain") then
+			local s = p.Size
+			local top = p.Position.Y + s.Y / 2
+			if s.Y <= 6 and math.min(s.X, s.Z) >= 20 and top > -1 and top < 7
+				and p.CFrame.UpVector.Y > 0.99 and p.Transparency < 0.9 and not skipped(p) then
+				local depth = 4.5
+				local flat = p.CFrame - p.Position + Vector3.new(p.Position.X, top, p.Position.Z)
+				Terrain:FillBlock(flat * CFrame.new(0, 18 - (depth - 0.5), 0), Vector3.new(s.X, 36, s.Z), AIR)
+				if s.Y < depth + 0.5 then
+					local ny = depth + 0.5
+					p.Size = Vector3.new(s.X, ny, s.Z)
+					p.CFrame = flat * CFrame.new(0, -ny / 2, 0)
+				end
+				n += 1
+				if n % 25 == 0 then task.wait() end
+			end
+		end
+	end
+	print(("FlyCrash: плит у земли поднято над травой: %d"):format(n))
 end
 
 workspace:SetAttribute("WorldReady", true)
