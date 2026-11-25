@@ -170,6 +170,7 @@ for k in range(14):
     ap.append(part("ParkedCar", (5, 3, 9), (290 + (k % 7) * 9, 1.5, -150 + (k // 7) * 16),
                    random.choice([(200, 40, 40), (240, 240, 240), (30, 30, 35), (40, 90, 180), (230, 190, 40)])))
 ap.append(part("Parking", (80, 0.3, 50), (318, 0.15, -142), ASPH2))
+ap.append(part("PassengerZone", (2, 2, 2), (130, 2, -60), (255, 150, 50), transp=1, collide=False))
 world.append(container("Model", "Airport", ap))
 # ---------------- здание ангара-витрины (x=-420, z=300), ворота смотрят на полосу (+X)
 HX, HZ = -420, 300

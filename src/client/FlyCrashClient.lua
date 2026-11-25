@@ -126,29 +126,84 @@ local paxL = label(mission, { Size = UDim2.new(1, 0, 0, 30), TextSize = 26, Font
 local goalL = label(mission, { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, TextSize = 14, TextWrapped = true, Font = Enum.Font.GothamMedium, LayoutOrder = 3 })
 local distL = label(mission, { Size = UDim2.new(1, 0, 0, 16), TextSize = 13, Font = Enum.Font.GothamBold, TextColor3 = C.yellow, LayoutOrder = 4 })
 
--- метка убежища в мире (видна сквозь всё)
+-- указатель цели: с пассажирами — к УБЕЖИЩУ, без пассажиров — к ПАССАЖИРАМ в аэропорт
 task.spawn(function()
-	local safe = workspace:FindFirstChild("SafeZone", true)
+	local safe, home
 	local t0 = os.clock()
-	while not safe and os.clock() - t0 < 30 do
-		task.wait(1)
+	repeat
 		safe = workspace:FindFirstChild("SafeZone", true)
-	end
-	if not safe then return end
+		home = workspace:FindFirstChild("PassengerZone", true)
+		if not (safe and home) then task.wait(0.5) end
+	until (safe and home) or os.clock() - t0 > 30
+	if not (safe and home) then return end
+
 	local bb = make("BillboardGui", {
-		Adornee = safe, Size = UDim2.new(0, 220, 0, 54), AlwaysOnTop = true, MaxDistance = 100000,
-		StudsOffsetWorldSpace = Vector3.new(0, 60, 0), Name = "SafeMarker",
+		Adornee = safe, Size = UDim2.new(0, 240, 0, 54), AlwaysOnTop = true, MaxDistance = 100000,
+		StudsOffsetWorldSpace = Vector3.new(0, 60, 0), Name = "TargetMarker",
 	}, gui)
 	local t = label(bb, {
-		Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 0.2, BackgroundColor3 = Color3.fromRGB(20, 70, 40),
-		Font = Enum.Font.GothamBlack, TextSize = 18, TextColor3 = C.white, TextXAlignment = Enum.TextXAlignment.Center,
-		Text = "УБЕЖИЩЕ",
+		Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 0.15, Font = Enum.Font.GothamBlack, TextSize = 18,
+		TextColor3 = C.white, TextXAlignment = Enum.TextXAlignment.Center, Text = "",
 	})
 	corner(t, 8)
-	RunService.Heartbeat:Connect(function()
-		local d = (camera.CFrame.Position - safe.Position).Magnitude * Shared.REAL_M / 1000 * 3
-		t.Text = ("УБЕЖИЩЕ  %.1f км"):format(d)
-		bb.Enabled = not hangarUI.Visible
+	local tStroke = make("UIStroke", { Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, t)
+
+	-- стрелка у края экрана, когда цель не видна
+	local arrow = make("Frame", { Size = UDim2.fromOffset(70, 70), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, Visible = false }, gui)
+	local arrowTxt = label(arrow, {
+		Size = UDim2.new(1, 0, 1, 0), Font = Enum.Font.GothamBlack, TextSize = 64, Text = ">",
+		TextXAlignment = Enum.TextXAlignment.Center,
+	})
+	make("UIStroke", { Color = Color3.new(0, 0, 0), Thickness = 3 }, arrowTxt)
+	local arrowDist = label(gui, {
+		Size = UDim2.fromOffset(160, 22), AnchorPoint = Vector2.new(0.5, 0.5), Visible = false,
+		Font = Enum.Font.GothamBold, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Center,
+	})
+	make("UIStroke", { Color = Color3.new(0, 0, 0), Thickness = 2 }, arrowDist)
+
+	local SAFE_COL = Color3.fromRGB(70, 220, 120)
+	local HOME_COL = Color3.fromRGB(255, 150, 50)
+
+	RunService.RenderStepped:Connect(function()
+		local hide = hangarUI.Visible
+		local own = flightsFolder:FindFirstChild(player.Name)
+		local pax = own and own:GetAttribute("Passengers") or 0
+		local toSafe = pax > 0
+		local target = toSafe and safe or home
+		local col = toSafe and SAFE_COL or HOME_COL
+		local name = toSafe and "УБЕЖИЩЕ" or "ПАССАЖИРЫ"
+		local km = (camera.CFrame.Position - target.Position).Magnitude * Shared.REAL_M / 1000 * 3
+
+		bb.Adornee = target
+		bb.Enabled = not hide
+		t.Text = ("%s  %.1f км"):format(name, km)
+		t.BackgroundColor3 = toSafe and Color3.fromRGB(20, 70, 40) or Color3.fromRGB(90, 45, 10)
+		tStroke.Color = col
+
+		-- стрелка: показываем, если цель за краем экрана или позади
+		local vp = camera.ViewportSize
+		local p = camera:WorldToViewportPoint(target.Position + Vector3.new(0, 60, 0))
+		local margin = 90
+		local visible = p.Z > 0 and p.X > margin and p.X < vp.X - margin and p.Y > margin and p.Y < vp.Y - margin
+		if hide or visible or not own then
+			arrow.Visible = false
+			arrowDist.Visible = false
+			return
+		end
+		local cx, cy = vp.X / 2, vp.Y / 2
+		local dx, dy = p.X - cx, p.Y - cy
+		if p.Z < 0 then dx, dy = -dx, -dy end
+		if math.abs(dx) < 1 and math.abs(dy) < 1 then dy = -1 end
+		local k = math.min((cx - margin) / math.max(math.abs(dx), 1), (cy - margin) / math.max(math.abs(dy), 1))
+		local ax, ay = cx + dx * k, cy + dy * k
+		arrow.Position = UDim2.fromOffset(ax, ay)
+		arrow.Rotation = math.deg(math.atan2(dy, dx))
+		arrowTxt.TextColor3 = col
+		arrow.Visible = true
+		arrowDist.Position = UDim2.fromOffset(ax - dx * k * 0.12, ay - dy * k * 0.12 + 40)
+		arrowDist.Text = ("%s %.1f км"):format(name, km)
+		arrowDist.TextColor3 = col
+		arrowDist.Visible = true
 	end)
 end)
 
@@ -1121,7 +1176,13 @@ RunService.RenderStepped:Connect(function(dt)
 		else
 			goalL.Text = "Лети на остров-убежище на востоке (зелёный маяк) и сядь там."
 		end
-		distL.Text = ("До убежища: %.1f км"):format(km)
+		if pax > 0 then
+			distL.Text = ("До убежища: %.1f км"):format(km)
+		else
+			local home = workspace:FindFirstChild("PassengerZone", true)
+			local hd = home and (Vector3.new(home.Position.X, 0, home.Position.Z) - Vector3.new(pl:GetPivot().Position.X, 0, pl:GetPivot().Position.Z)).Magnitude or 0
+			distL.Text = ("До пассажиров: %.1f км"):format(hd * Shared.REAL_M / 1000 * 3)
+		end
 	else
 		mission.Visible = false
 	end
