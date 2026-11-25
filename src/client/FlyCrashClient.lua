@@ -53,6 +53,16 @@ local function label(parent, props)
 	return make("TextLabel", base, parent)
 end
 
+-- стандартная таблица игроков справа перекрывала панель эвакуации — деньги и так в кошельке
+task.spawn(function()
+	local SG = game:GetService("StarterGui")
+	for _ = 1, 20 do
+		local ok = pcall(function() SG:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false) end)
+		if ok then break end
+		task.wait(0.5)
+	end
+end)
+
 local gui = make("ScreenGui", {
 	Name = "FlyCrashUI", ResetOnSpawn = false, IgnoreGuiInset = true,
 	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
@@ -110,6 +120,14 @@ local thrL = stat("ГАЗ", 75)
 local pitchL = stat("ТАНГАЖ", 80)
 local vsL = stat("ВЕРТ. СКОРОСТЬ", 115)
 local gearL = stat("ШАССИ", 110)
+-- на узком экране приборы уменьшаются, чтобы не залезать на другие панели
+local hudScale = make("UIScale", { Scale = 1 }, hud)
+local function fitHud()
+	local w = camera.ViewportSize.X
+	hudScale.Scale = math.clamp((w - 520) / 780, 0.5, 1)
+end
+camera:GetPropertyChangedSignal("ViewportSize"):Connect(fitHud)
+fitHud()
 local stateL = stat("СОСТОЯНИЕ", 150)
 hud.Visible = false
 
@@ -201,7 +219,7 @@ task.spawn(function()
 		arrow.Rotation = math.deg(math.atan2(dy, dx))
 		arrowTxt.TextColor3 = col
 		arrow.Visible = true
-		arrowDist.Position = UDim2.fromOffset(ax - dx * k * 0.12, ay - dy * k * 0.12 + 40)
+		arrowDist.Position = UDim2.fromOffset(math.clamp(ax - dx * k * 0.12, 90, vp.X - 90), math.clamp(ay - dy * k * 0.12 + 40, 60, vp.Y - 30))
 		arrowDist.Text = ("%s %.1f км"):format(name, km)
 		arrowDist.TextColor3 = col
 		arrowDist.Visible = true

@@ -402,6 +402,26 @@ local function prepPlane(model)
 		end
 	end
 	model:SetAttribute("FCGearCount", gearCount)
+	-- на землю ставим колёса, а не случайную деталь, торчащую ниже них
+	if gearCount > 0 then
+		local gmin = math.huge
+		for _, gp in ipairs(visible) do
+			if gp:GetAttribute("FCGear") then
+				local hs = gp.Size / 2
+				for sx = -1, 1, 2 do
+					for sy = -1, 1, 2 do
+						for sz = -1, 1, 2 do
+							gmin = math.min(gmin, gp.CFrame:PointToWorldSpace(Vector3.new(hs.X * sx, hs.Y * sy, hs.Z * sz)).Y)
+						end
+					end
+				end
+			end
+		end
+		if gmin < math.huge and gmin - minV.Y > 0.05 and gmin - minV.Y < size.Y * 0.3 then
+			local nb = Vector3.new(bottom.X, gmin, bottom.Z)
+			root.CFrame = CFrame.lookAt(nb, nb + nose)
+		end
+	end
 
 	-- 6. Основные цвета (для ливрей): два цвета с наибольшей площадью, не тёмные и не стекло
 	local areas = {}
