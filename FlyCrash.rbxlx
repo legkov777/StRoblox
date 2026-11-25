@@ -530,6 +530,29 @@ local function prepPlane(model)
 	end)
 	if not okGear then warn("FlyCrash: " .. model.Name .. " — шасси не распознаны: " .. tostring(errGear)) end
 
+	-- пропеллеры: детали (или их родители) с «винтовыми» именами — крутим их в полёте
+	pcall(function()
+		local PROP_WORDS = { "prop", "rotor", "blade", "spinner", "винт", "лопаст" }
+		local nProp = 0
+		for _, part in ipairs(visible) do
+			local a = part
+			while a and a ~= model do
+				local n = string.lower(a.Name)
+				local hit = false
+				for _, w in ipairs(PROP_WORDS) do
+					if string.find(n, w, 1, true) then hit = true break end
+				end
+				if hit then
+					part:SetAttribute("FCProp", true)
+					nProp += 1
+					break
+				end
+				a = a.Parent
+			end
+		end
+		model:SetAttribute("FCPropCount", nProp)
+	end)
+
 	local okCol, errCol = pcall(function()
 	-- 6. Основные цвета (для ливрей): два цвета с наибольшей площадью, не тёмные и не стекло
 	local areas = {}
@@ -1358,6 +1381,30 @@ spawnFlight = function(owner, planeName, livery)
 	f.hordeAt = os.clock() + CFG.HORDE_FIRST
 	f.overrunT = 0
 
+	-- пропеллеры: группы по двигателям, крутим вокруг втулки
+	f.props = {}
+	do
+		local rootCF = plane.PrimaryPart.CFrame
+		local groups, order = {}, {}
+		for _, d in ipairs(plane:GetDescendants()) do
+			if d:IsA("BasePart") and d:GetAttribute("FCProp") then
+				local slot = d:GetAttribute("FCEngine")
+				local key = slot and ("s" .. slot) or d:GetFullName()
+				if not groups[key] then
+					groups[key] = { slot = slot, parts = {}, angle = math.random() * 6 }
+					table.insert(order, groups[key])
+				end
+				table.insert(groups[key].parts, { p = d, base = rootCF:ToObjectSpace(d.CFrame) })
+			end
+		end
+		for _, g in ipairs(order) do
+			local s = Vector3.zero
+			for _, e in ipairs(g.parts) do s += e.base.Position end
+			g.hub = s / #g.parts
+			table.insert(f.props, g)
+		end
+	end
+
 	f.engineStarted = false
 	f.engineSound = playSound("EngineLoop", f.core, true)
 	if f.engineSound then f.engineSound.Volume = 0 end
@@ -1780,6 +1827,22 @@ local function stepFlight(f, dt, now)
 
 	st.pos = newPos
 	f.plane:PivotTo(CFrame.new(newPos) * rot * CFrame.Angles(0, 0, st.roll))
+	-- крутим пропеллеры: быстрее от газа, у оторванного двигателя — стоп
+	if #f.props > 0 then
+		local rcf = f.plane.PrimaryPart.CFrame
+		local spin = f.engineStarted and (8 + st.throttle * 40) or 0
+		for _, g in ipairs(f.props) do
+			if spin > 0 and not (g.slot and f.engineDead[g.slot]) then
+				g.angle = (g.angle + spin * dt) % (math.pi * 2)
+				local turn = CFrame.new(g.hub) * CFrame.Angles(0, 0, g.angle) * CFrame.new(-g.hub)
+				for _, e in ipairs(g.parts) do
+					if e.p:IsDescendantOf(f.plane) then
+						e.p.CFrame = rcf * turn * e.base
+					end
+				end
+			end
+		end
+	end
 
 	if st.fireStart and now - st.fireStart > CFG.FIRE_TIME then
 		crash(f, "Пожар уничтожил самолёт")
