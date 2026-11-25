@@ -1093,6 +1093,7 @@ spawnFlight = function(owner, planeName, livery)
 	prompt.RequiresLineOfSight = false
 	prompt.HoldDuration = 0
 	prompt.Parent = f.core
+	f.prompt = prompt
 	prompt.Triggered:Connect(function(p)
 		local char = p.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -1516,6 +1517,10 @@ local function publish(f)
 	pl:SetAttribute("State", text)
 	pl:SetAttribute("Engines", alive)
 	pl:SetAttribute("Flew", st.flew)
+	-- садиться можно только в стоящий самолёт
+	if f.prompt and f.prompt.Parent then
+		f.prompt.Enabled = st.onGround and st.speed < 5 and not st.crashed
+	end
 end
 
 ---------------------------------------------------------------- ПАССАЖИРЫ (API для OutbreakServer)

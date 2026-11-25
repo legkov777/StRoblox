@@ -2,6 +2,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
@@ -955,6 +956,8 @@ RunService.RenderStepped:Connect(function(dt)
 
 	hud.Visible = pl ~= nil
 	local seatedInPlane = seat ~= nil and seat:IsDescendantOf(flightsFolder) and pl ~= nil
+	-- кто сидит в самолёте, тому подсказки «Сесть пассажиром» не нужны
+	ProximityPromptService.Enabled = not seatedInPlane
 	if seatedInPlane then
 		if not inPlaneCam or camera.CameraType ~= Enum.CameraType.Scriptable then
 			inPlaneCam = true
